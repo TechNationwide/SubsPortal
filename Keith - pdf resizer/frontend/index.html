@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Keith — PDF Compressor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-gradient"></div>
+  <div class="bg-grid"></div>
+
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <polyline points="8 13 10 15 16 9"/>
+        </svg>
+      </div>
+      <div>
+        <h1><span>K</span>eith</h1>
+        <p class="tagline">PDF Compression Tool</p>
+      </div>
+    </div>
+    <div class="status-pill" id="healthStatus">
+      <span class="status-dot"></span>
+      <span>Checking…</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero-card">
+
+      <div class="hero-text">
+        <h2>Shrink bloated PDFs <em>instantly</em></h2>
+        <p>Drop up to 15 PDFs at once. Keith compresses each one and packages them into a single download.</p>
+      </div>
+
+      <!-- Upload zone -->
+      <div class="upload-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple hidden />
+        <div class="upload-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 15V3"/><path d="M8 7l4-4 4 4"/>
+            <path d="M3 15v4a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/>
+          </svg>
+        </div>
+        <p class="upload-title">Drop your PDFs here</p>
+        <p class="upload-sub">or <button type="button" class="link-btn" id="browseBtn">browse files</button></p>
+        <p class="upload-hint">PDF only · Max 15 files · 100 MB each</p>
+      </div>
+
+      <!-- File queue list -->
+      <div class="file-queue hidden" id="fileQueue">
+        <div class="queue-header">
+          <div class="queue-meta">
+            <span class="queue-count" id="queueCount">0 files</span>
+            <span class="queue-size" id="queueSize"></span>
+          </div>
+          <button type="button" class="clear-all-btn" id="clearAllBtn">Clear all</button>
+        </div>
+        <div class="queue-list" id="queueList">
+          <!-- file items injected by JS -->
+        </div>
+        <button type="button" class="add-more-btn" id="addMoreBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add more files
+        </button>
+      </div>
+
+      <!-- Preset selector -->
+      <div class="preset-section" id="presetSection">
+        <label class="section-label">Compression preset</label>
+        <div class="preset-grid" id="presetGrid">
+          <button type="button" class="preset-card" data-preset="light">
+            <span class="preset-name">Light</span>
+            <span class="preset-desc">200 DPI · 85%</span>
+            <span class="preset-use">Minimal loss</span>
+            <span class="preset-detail">Images stay crisp and print-ready. Best if you still need to share high quality files. Expect 30–50% size reduction.</span>
+          </button>
+          <button type="button" class="preset-card active" data-preset="balanced">
+            <span class="preset-name">Balanced</span>
+            <span class="preset-desc">150 DPI · 75%</span>
+            <span class="preset-use">Recommended</span>
+            <span class="preset-detail">The sweet spot. Looks sharp on screen and in email. Typically cuts flattened PDFs by 60–75% with no visible loss.</span>
+          </button>
+          <button type="button" class="preset-card" data-preset="aggressive">
+            <span class="preset-name">Aggressive</span>
+            <span class="preset-desc">120 DPI · 60%</span>
+            <span class="preset-use">Big wins</span>
+            <span class="preset-detail">Slight softness on close inspection, but files shrink dramatically. Great for web uploads or email attachments.</span>
+          </button>
+          <button type="button" class="preset-card" data-preset="maximum">
+            <span class="preset-name">Maximum</span>
+            <span class="preset-desc">96 DPI · 45%</span>
+            <span class="preset-use">Smallest file</span>
+            <span class="preset-detail">Smallest possible output. Images will look soft — use for quick previews or when file size is the only priority.</span>
+          </button>
+        </div>
+      </div>
+
+      <button type="button" class="compress-btn" id="compressBtn" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/>
+        </svg>
+        <span class="btn-label">Compress Files</span>
+        <span class="btn-spinner hidden"></span>
+      </button>
+
+    </section>
+
+    <!-- Results -->
+    <section class="results-card hidden" id="resultsCard">
+      <div class="results-header">
+        <div>
+          <p class="results-eyebrow">Compression complete</p>
+          <p class="results-summary" id="resultsSummary">—</p>
+        </div>
+        <button type="button" class="download-all-btn hidden" id="downloadAllBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <path d="M12 3v12"/><path d="M8 11l4 4 4-4"/><path d="M3 19h18"/>
+          </svg>
+          Download All ZIP
+        </button>
+      </div>
+
+      <div class="results-list" id="resultsList">
+        <!-- result rows injected by JS -->
+      </div>
+
+      <button type="button" class="compress-another-btn" id="newJobBtn">
+        Compress another batch
+      </button>
+    </section>
+
+    <section class="info-grid">
+      <article class="info-card">
+        <span class="info-card-icon">💥</span>
+        <h4>Why files explode</h4>
+        <p>Flattening merges layers into full-page bitmaps. Aqua and CMYK conversions add high-res image data. A 300 KB vector file can become 7+ MB overnight.</p>
+      </article>
+      <article class="info-card">
+        <span class="info-card-icon">⚡</span>
+        <h4>What Keith does</h4>
+        <p>Re-encodes embedded images at your target DPI, strips duplicates with pikepdf, and runs Ghostscript when available for maximum compression savings.</p>
+      </article>
+      <article class="info-card">
+        <span class="info-card-icon">🚀</span>
+        <h4>Next phase</h4>
+        <p>AWS S3 storage, async batch processing, and authenticated multi-file jobs — all coming in the next version of Keith.</p>
+      </article>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Built by <span>Keith</span> · Python + FastAPI · PyMuPDF · pikepdf</p>
+  </footer>
+
+  <div class="toast hidden" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

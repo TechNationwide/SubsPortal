@@ -1,0 +1,30 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-watermark-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy watermark site over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ~/vaTeam-WebPage
+            bash deploy/update.sh --branch=${{ github.ref_name }}

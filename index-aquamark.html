@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aquamark — Submit Deal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/portal.css" />
+  </head>
+  <body>
+    <div class="login-bg-orbs" aria-hidden="true">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
+    <div id="loginPage" class="login-page">
+      <div class="login-split">
+        <div class="login-brand-panel">
+          <div class="login-brand-content">
+            <div class="login-logo">
+              <div class="login-logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <path d="M9 12l2 2 4-4"/>
+                </svg>
+              </div>
+            </div>
+            <h2>Aquamark<br />Processing</h2>
+            <p class="tagline">Select a brand, upload your logo watermark and deal PDFs — get flattened, watermarked files ready to download.</p>
+          </div>
+        </div>
+        <div class="login-card">
+          <div class="login-header">
+            <div class="login-logo">
+              <div class="login-logo-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <path d="M9 12l2 2 4-4"/>
+                </svg>
+              </div>
+              <div><h1>Welcome back</h1></div>
+            </div>
+            <p class="login-welcome">Sign in to process documents.</p>
+          </div>
+          <div class="login-body">
+            <form id="loginForm">
+              <div class="field">
+                <label for="loginEmail">Email address</label>
+                <input id="loginEmail" type="email" placeholder="you@company.com" required />
+              </div>
+              <div class="field">
+                <label for="loginPassword">Password</label>
+                <input id="loginPassword" type="password" placeholder="••••••••" required />
+              </div>
+              <button type="submit" class="btn btn-primary btn-login" style="width:100%">
+                <span>Sign In</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+            </form>
+            <div class="login-hint"><strong>Demo mode</strong> — use any email and password.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="portalPage" class="hidden">
+      <div class="scroll-progress" id="scrollProgress"></div>
+      <div class="demo-banner">Aquamark processing — PDFs are watermarked and flattened server-side. Run <code>python server.py</code> if uploads fail.</div>
+
+      <header class="portal-header">
+        <div class="portal-header-text">
+          <div class="header-logo-row">
+            <div class="header-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                <path d="M9 12l2 2 4-4"/>
+              </svg>
+            </div>
+            <div>
+              <h1>Submit Deal</h1>
+              <p>Select brand, upload watermark &amp; files — download watermarked PDFs.</p>
+            </div>
+          </div>
+          <nav class="site-nav" id="siteNav" aria-label="Portal pages"></nav>
+        </div>
+        <div class="user-bar">
+          <span class="user-pill" id="userDisplay">admin@company.com</span>
+          <button type="button" class="btn btn-ghost" onclick="logout()">Sign Out</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="card workflow-card">
+          <div class="workflow" id="workflow">
+            <div class="workflow-step active" data-step="brand">
+              <div class="step-num">1</div>
+              <div class="step-text"><strong>Select Brand</strong><span>Search and pick one brand</span></div>
+            </div>
+            <div class="workflow-step" data-step="watermark">
+              <div class="step-num">2</div>
+              <div class="step-text"><strong>Brand Watermark</strong><span>Logo used by Aquamark</span></div>
+            </div>
+            <div class="workflow-step" data-step="process">
+              <div class="step-num">3</div>
+              <div class="step-text"><strong>Upload &amp; Process</strong><span>Watermark + flatten → download</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card panel" id="dealIntake">
+          <div class="panel-header">
+            <h2>Deal &amp; Team</h2>
+          </div>
+          <div class="field">
+            <label for="dealName">Deal Name</label>
+            <input id="dealName" value="ABC Auto Repair LLC" />
+          </div>
+          <div class="inline-field-row">
+            <div class="field">
+              <label for="submittedBy">Submitted By (Rep)</label>
+              <select id="submittedBy">
+                <option value="">— Select rep —</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Team Auto-CC</label>
+              <div class="cc-preview empty" id="ccPreview">
+                <strong>CC Recipients</strong>
+                Select a rep to see their team. Manage in <a href="teams.html">Setup → Teams</a>.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card panel" id="brandSection">
+          <div class="panel-header">
+            <h2>Brand</h2>
+            <p class="panel-sub">Search and select the brand for this submission.</p>
+          </div>
+
+          <div class="field brand-search-field">
+            <label for="brandSearch">Select brand</label>
+            <div class="brand-search-wrap" id="brandSearchWrap">
+              <input
+                id="brandSearch"
+                type="search"
+                placeholder="Search brands…"
+                autocomplete="off"
+                aria-expanded="false"
+                aria-controls="brandSearchList"
+                aria-autocomplete="list"
+              />
+              <div class="brand-search-dropdown hidden" id="brandSearchList" role="listbox"></div>
+            </div>
+            <div class="brand-selected-pill hidden" id="brandSelectedPill">
+              <span class="brand-swatch" id="brandSwatch"></span>
+              <span id="brandSelectedLabel"></span>
+              <button type="button" class="brand-clear-btn" id="brandClearBtn" title="Clear selection">×</button>
+            </div>
+          </div>
+
+          <div class="brand-watermark-block" id="brandWatermarkBlock">
+            <div class="panel-header" style="margin-top:8px">
+              <h3>Brand watermark</h3>
+              <p class="panel-sub">Loaded from the brand logo if saved in <a href="brands.html">Setup → Brands</a>. Upload here to override for this session.</p>
+            </div>
+            <div class="watermark-upload-row">
+              <div
+                class="upload-zone upload-zone-compact"
+                id="watermarkDropZone"
+                tabindex="0"
+                role="button"
+                aria-label="Upload brand watermark"
+              >
+                <input type="file" id="watermarkInput" accept="image/png,image/jpeg,image/webp" hidden />
+                <div class="upload-zone-inner">
+                  <span class="upload-icon">🖼</span>
+                  <strong>Drop logo here</strong>
+                  <span>or click to browse</span>
+                </div>
+              </div>
+              <div class="watermark-preview hidden" id="watermarkPreview">
+                <img id="watermarkPreviewImg" alt="Brand watermark preview" />
+                <button type="button" class="btn btn-secondary btn-xs" id="watermarkRemoveBtn">Remove</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card panel" id="filesSection">
+          <div class="panel-header">
+            <h2>Deal documents</h2>
+            <p class="panel-sub">Upload PDFs — they will be watermarked and flattened automatically.</p>
+          </div>
+
+          <div
+            class="upload-zone"
+            id="filesDropZone"
+            tabindex="0"
+            role="button"
+            aria-label="Upload deal PDFs"
+          >
+            <input type="file" id="filesInput" accept="application/pdf,.pdf" multiple hidden />
+            <div class="upload-zone-inner">
+              <span class="upload-icon">📄</span>
+              <strong>Drop PDFs here</strong>
+              <span>Bank statements, application, ID — multiple files OK</span>
+            </div>
+          </div>
+
+          <ul class="aquamark-file-list" id="dealFileList"></ul>
+
+          <div class="aquamark-actions">
+            <button type="button" class="btn btn-aquamark" id="processBtn" disabled>
+              Aquamark &amp; Flatten
+            </button>
+            <p class="aquamark-hint" id="processHint">Select a brand and upload at least one PDF.</p>
+          </div>
+        </section>
+
+        <section class="card panel hidden" id="resultsSection">
+          <div class="panel-header">
+            <h2>Processed files</h2>
+            <p class="panel-sub">Watermarked and flattened — ready to download.</p>
+          </div>
+          <ul class="aquamark-results-list" id="resultsList"></ul>
+          <div class="aquamark-actions" id="bulkDownloadWrap" style="display:none">
+            <button type="button" class="btn btn-primary" id="downloadAllBtn">Download all</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="js/store.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/aquamark-portal.js"></script>
+  </body>
+</html>

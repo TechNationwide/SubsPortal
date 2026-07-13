@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Accounts — Submission Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/portal.css" />
+  </head>
+  <body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+    <div class="demo-banner">Admin setup — brand sending addresses used on the Submit Deal page.</div>
+
+    <header class="portal-header">
+      <div class="portal-header-text">
+        <div class="header-logo-row">
+          <div class="header-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Portal Setup</h1>
+            <p>Configure teams, funders, and email accounts used on the deal submission page.</p>
+          </div>
+        </div>
+        <nav class="site-nav" id="siteNav" aria-label="Portal pages"></nav>
+      </div>
+      <div class="user-bar">
+        <span class="user-pill" id="userDisplay">admin@company.com</span>
+        <button type="button" class="btn btn-ghost" onclick="logout()">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="setup-page-main">
+      <div class="setup-page-header">
+        <h1 id="pageTitle">Email Accounts</h1>
+        <p id="pageSubtitle"></p>
+      </div>
+
+      <section class="card panel config-card">
+        <div class="config-card-header">
+          <div>
+            <h2>Brand Sending Addresses</h2>
+            <p>Set the From address for each brand. Production will connect OAuth or SMTP here.</p>
+          </div>
+          <span class="config-badge">Setup</span>
+        </div>
+        <div class="email-account-list" id="emailAccountList"></div>
+        <div class="instructions" style="margin-top: 14px">
+          <strong>Coming soon:</strong> Connect Microsoft 365 or Google Workspace accounts per brand for live sending.
+        </div>
+      </section>
+    </main>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="js/store.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/setup-emails.js"></script>
+  </body>
+</html>

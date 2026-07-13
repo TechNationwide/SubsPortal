@@ -1,0 +1,24 @@
+data/processed/
+data/store.json
+logs/
+frontend/.next/
+frontend/node_modules/
+backend/.venv/
+backend/.env
+Keith - pdf resizer/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db

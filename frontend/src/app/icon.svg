@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="vat-bg" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3b82f6" />
+      <stop offset="1" stop-color="#6366f1" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#vat-bg)" />
+  <path
+    d="M16 25.5s6.5-3.25 6.5-8.125V10.25L16 8 9.5 10.25v7.125C9.5 22.25 16 25.5 16 25.5z"
+    stroke="#fff"
+    stroke-width="1.85"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M13.25 15.25 15 17l3.75-3.75"
+    stroke="#fff"
+    stroke-width="1.85"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

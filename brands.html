@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Brands — Submission Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/portal.css" />
+  </head>
+  <body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+    <div class="demo-banner">Admin setup — brands and logos sync to Submit Deal and Aquamark pages.</div>
+
+    <header class="portal-header">
+      <div class="portal-header-text">
+        <div class="header-logo-row">
+          <div class="header-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Portal Setup</h1>
+            <p>Configure brands, teams, funders, and email accounts used on the deal submission page.</p>
+          </div>
+        </div>
+        <nav class="site-nav" id="siteNav" aria-label="Portal pages"></nav>
+      </div>
+      <div class="user-bar">
+        <span class="user-pill" id="userDisplay">admin@company.com</span>
+        <button type="button" class="btn btn-ghost" onclick="logout()">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="setup-page-main">
+      <div class="setup-page-header">
+        <h1 id="pageTitle">Brands</h1>
+        <p id="pageSubtitle"></p>
+      </div>
+
+      <section class="card panel config-card">
+        <div class="config-card-header">
+          <div>
+            <h2>Brand Registry</h2>
+            <p>All brands in one list. Create or edit a brand in the form modal — logos are used for Aquamark watermarking.</p>
+          </div>
+          <span class="config-badge">Admin</span>
+        </div>
+
+        <div class="crm-toolbar">
+          <div class="crm-toolbar-left">
+            <input type="search" id="brandListSearch" class="crm-search" placeholder="Search brands…" aria-label="Search brands" />
+            <span class="crm-record-count" id="brandRecordCount"></span>
+          </div>
+          <button type="button" class="btn btn-primary" id="openCreateBrandBtn">+ New Brand</button>
+        </div>
+
+        <div class="crm-table-wrap">
+          <table class="crm-table" id="brandTable">
+            <thead>
+              <tr>
+                <th>Logo</th>
+                <th>Brand</th>
+                <th>Submission email</th>
+                <th>Application</th>
+                <th>Accent</th>
+                <th class="crm-col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="brandTableBody"></tbody>
+          </table>
+          <div class="crm-empty hidden" id="brandEmptyState">
+            <strong>No brands found</strong>
+            <span>Try a different search or create a new brand.</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Brand create / edit modal -->
+    <div id="brandModal" class="modal-overlay hidden" onclick="closeBrandModalOnOverlay(event)">
+      <div class="modal modal-form" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <h3 id="brandModalTitle">New Brand</h3>
+          <button type="button" class="modal-close" onclick="closeBrandModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="brandForm" class="modal-body modal-form-body">
+          <div class="field">
+            <label for="brandFormName">Brand name <span class="required">*</span></label>
+            <input id="brandFormName" type="text" required placeholder="e.g. Nationwide" />
+          </div>
+          <div class="field">
+            <label for="brandFormEmail">Submission email</label>
+            <input id="brandFormEmail" type="email" placeholder="submissions@brand.com" />
+          </div>
+          <div class="field">
+            <label for="brandFormApp">Application name</label>
+            <input id="brandFormApp" type="text" placeholder="Brand Application" />
+          </div>
+          <div class="field">
+            <label for="brandFormAccent">Accent color</label>
+            <input id="brandFormAccent" type="color" value="#4f46e5" />
+          </div>
+          <div class="field">
+            <label>Brand logo <span class="field-hint">Aquamark watermark — PNG or JPEG, max 2 MB</span></label>
+            <div class="modal-logo-row">
+              <div class="brand-logo-drop" id="brandModalLogoDrop" tabindex="0" role="button">
+                <input type="file" id="brandFormLogo" accept="image/png,image/jpeg,image/webp" hidden />
+                <span class="upload-icon">🖼</span>
+                <span>Upload logo</span>
+              </div>
+              <div class="brand-logo-preview-wrap hidden" id="brandModalLogoPreview">
+                <img id="brandModalLogoImg" alt="Logo preview" class="brand-logo-preview-img" />
+                <button type="button" class="btn btn-secondary btn-xs" id="brandModalLogoRemove">Remove logo</button>
+              </div>
+            </div>
+          </div>
+        </form>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="brandModalDeleteBtn" style="display:none">Delete</button>
+          <div class="modal-footer-right">
+            <button type="button" class="btn btn-secondary" onclick="closeBrandModal()">Cancel</button>
+            <button type="submit" form="brandForm" class="btn btn-primary" id="brandModalSaveBtn">Save Brand</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="js/store.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/setup-brands.js"></script>
+  </body>
+</html>

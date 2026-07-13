@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Funders — Submission Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/portal.css" />
+  </head>
+  <body>
+    <div class="scroll-progress" id="scrollProgress"></div>
+    <div class="demo-banner">Admin setup — funder assignments sync to the Submit Deal page.</div>
+
+    <header class="portal-header">
+      <div class="portal-header-text">
+        <div class="header-logo-row">
+          <div class="header-logo">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <div>
+            <h1>Portal Setup</h1>
+            <p>Configure brands, teams, funders, and email accounts used on the deal submission page.</p>
+          </div>
+        </div>
+        <nav class="site-nav" id="siteNav" aria-label="Portal pages"></nav>
+      </div>
+      <div class="user-bar">
+        <span class="user-pill" id="userDisplay">admin@company.com</span>
+        <button type="button" class="btn btn-ghost" onclick="logout()">Sign Out</button>
+      </div>
+    </header>
+
+    <main class="setup-page-main">
+      <div class="setup-page-header">
+        <h1 id="pageTitle">Funder Registry</h1>
+        <p id="pageSubtitle"></p>
+      </div>
+
+      <section class="card panel config-card">
+        <div class="config-card-header">
+          <div>
+            <h2>Funders &amp; Brand Assignment</h2>
+            <p>All funders in one list. Create or edit in the modal — assign which brands each funder applies to.</p>
+          </div>
+          <span class="config-badge">Admin</span>
+        </div>
+
+        <div class="crm-toolbar">
+          <div class="crm-toolbar-left">
+            <input type="search" id="funderListSearch" class="crm-search" placeholder="Search funders…" aria-label="Search funders" />
+            <span class="crm-record-count" id="funderRecordCount"></span>
+          </div>
+          <button type="button" class="btn btn-primary" id="openCreateFunderBtn">+ New Funder</button>
+        </div>
+
+        <div class="crm-table-wrap">
+          <table class="crm-table" id="funderTable">
+            <thead>
+              <tr>
+                <th>Funder</th>
+                <th>Submission email</th>
+                <th>Applies to brands</th>
+                <th class="crm-col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="funderTableBody"></tbody>
+          </table>
+          <div class="crm-empty hidden" id="funderEmptyState">
+            <strong>No funders found</strong>
+            <span>Try a different search or create a new funder.</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Funder create / edit modal -->
+    <div id="funderModal" class="modal-overlay hidden" onclick="closeFunderModalOnOverlay(event)">
+      <div class="modal modal-form" onclick="event.stopPropagation()">
+        <div class="modal-header">
+          <h3 id="funderModalTitle">New Funder</h3>
+          <button type="button" class="modal-close" onclick="closeFunderModal()" aria-label="Close">&times;</button>
+        </div>
+        <form id="funderForm" class="modal-body modal-form-body">
+          <div class="field">
+            <label for="funderFormName">Funder name <span class="required">*</span></label>
+            <input id="funderFormName" type="text" required placeholder="e.g. Forward Funding Capital" />
+          </div>
+          <div class="field">
+            <label for="funderFormEmail">Submission email</label>
+            <input id="funderFormEmail" type="email" placeholder="submissions@funder.com" />
+          </div>
+          <div class="field">
+            <label for="funderBrandSearch">Applies to brands <span class="required">*</span></label>
+            <span class="field-hint">Search and select one or more brands this funder works with.</span>
+            <div class="crm-multiselect" id="funderBrandMultiselect">
+              <div class="crm-multiselect-chips" id="funderBrandChips"></div>
+              <input
+                type="search"
+                id="funderBrandSearch"
+                class="crm-multiselect-input"
+                placeholder="Search brands to add…"
+                autocomplete="off"
+                aria-expanded="false"
+                aria-controls="funderBrandDropdown"
+              />
+              <div class="crm-multiselect-dropdown hidden" id="funderBrandDropdown" role="listbox"></div>
+            </div>
+          </div>
+        </form>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="funderModalDeleteBtn" style="display:none">Delete</button>
+          <div class="modal-footer-right">
+            <button type="button" class="btn btn-secondary" onclick="closeFunderModal()">Cancel</button>
+            <button type="submit" form="funderForm" class="btn btn-primary" id="funderModalSaveBtn">Save Funder</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    <script src="js/store.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/setup-funders.js"></script>
+  </body>
+</html>
