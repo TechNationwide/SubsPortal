@@ -3272,12 +3272,47 @@
   gap: 8px;
 }
 
+.aquamark-results-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.aquamark-batch-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.aquamark-batch-actions button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.aquamark-batch-preset {
+  height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--card);
+  color: var(--text);
+  flex-shrink: 0;
+}
+
 .aquamark-results-grid {
   display: grid;
   /* auto-fit (not auto-fill) collapses unused tracks, so a single funder
      card stretches to fill the row instead of being squeezed into one of
-     several equal-width phantom columns. */
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+     several equal-width phantom columns. min(320px, 100%) keeps the track
+     from ever forcing the grid wider than its container on narrow/mobile
+     viewports — plain 320px would push the whole page into horizontal
+     scroll below that width. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 16px;
   margin-top: 16px;
 }
@@ -3450,31 +3485,19 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
   background: var(--soft);
-  transition: opacity 0.5s var(--ease-smooth), transform 0.5s var(--ease-smooth),
-    max-height 0.4s var(--ease-smooth) 0.5s, margin 0.4s var(--ease-smooth) 0.5s,
-    padding 0.4s var(--ease-smooth) 0.5s;
-  max-height: 400px;
 }
 
-.aquamark-result-item.is-downloaded {
-  opacity: 0;
-  transform: translateX(10px) scale(0.98);
-  max-height: 0;
-  margin: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-color: transparent;
-  overflow: hidden;
-}
-
-.aquamark-result-done {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
+.aquamark-result-badge {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 10px;
   font-weight: 700;
-  color: var(--success);
-  white-space: nowrap;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--primary);
+  background: rgba(79, 70, 229, 0.1);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .aquamark-result-actions {

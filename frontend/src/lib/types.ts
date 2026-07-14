@@ -29,4 +29,5 @@ export type ProcessedFile = {
   size: number;
   recipient?: string;
   recipient_email?: string;
+  compressed?: boolean;
 };

@@ -134,7 +134,8 @@ export default function SubmitDealPage() {
   const [compressPreset, setCompressPreset] = useState<CompressPreset>("balanced");
   const [compressLoading, setCompressLoading] = useState(false);
   const [compressResult, setCompressResult] = useState<CompressResult | null>(null);
-  const [justDownloaded, setJustDownloaded] = useState<Set<string>>(new Set());
+  const [batchPreset, setBatchPreset] = useState<CompressPreset>("balanced");
+  const [batchCompressing, setBatchCompressing] = useState(false);
 
   useEffect(() => {
     jobIdRef.current = jobId;
@@ -324,40 +325,40 @@ export default function SubmitDealPage() {
     closeBodyModal();
   }
 
-  function retireResult(downloadPath: string) {
-    setJustDownloaded((prev) => new Set(prev).add(downloadPath));
-    setTimeout(() => {
-      setResults((prev) => {
-        const next = prev.filter((f) => f.download !== downloadPath);
-        if (next.length === 0) {
-          void cleanupJob(jobIdRef.current);
-        }
-        return next;
-      });
-      setJustDownloaded((prev) => {
-        const next = new Set(prev);
-        next.delete(downloadPath);
-        return next;
-      });
-    }, 900);
+  async function downloadFile(downloadPath: string, filename: string) {
+    const res = await fetch(downloadUrl(downloadPath));
+    if (!res.ok) throw new Error("Download failed.");
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
   }
 
   async function onDownload(file: ProcessedFile) {
     try {
-      const res = await fetch(downloadUrl(file.download));
-      if (!res.ok) throw new Error("Download failed.");
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = file.name;
-      anchor.click();
-      URL.revokeObjectURL(objectUrl);
-      await api.deleteProcessedFile(file.download);
-      retireResult(file.download);
+      await downloadFile(file.download, file.name);
+      setToast(`${file.name} downloaded.`);
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Download failed.");
     }
+  }
+
+  async function onRemoveResult(file: ProcessedFile) {
+    try {
+      await api.deleteProcessedFile(file.download);
+    } catch {
+      /* already removed */
+    }
+    setResults((prev) => {
+      const next = prev.filter((f) => f.download !== file.download);
+      if (next.length === 0) {
+        void cleanupJob(jobIdRef.current);
+      }
+      return next;
+    });
   }
 
   function openCompressModal(file: ProcessedFile) {
@@ -394,30 +395,86 @@ export default function SubmitDealPage() {
     }
   }
 
-  async function downloadCompressedResult() {
+  async function downloadCompressedCopy() {
     const file = compressModalFile;
     const result = compressResult;
     if (!file || !result) return;
     try {
-      const res = await fetch(downloadUrl(result.download));
-      if (!res.ok) throw new Error("Download failed.");
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = file.name.replace(/\.pdf$/i, "_compressed.pdf");
-      anchor.click();
-      URL.revokeObjectURL(objectUrl);
-
+      await downloadFile(result.download, file.name.replace(/\.pdf$/i, "_compressed.pdf"));
+      // Scratch copy only — the deal still uses the original, so drop the
+      // one-off compressed file from the server without touching it.
       await api.deleteProcessedFile(result.download).catch(() => undefined);
-      await api.deleteProcessedFile(file.download).catch(() => undefined);
-
       setToast(`${file.name} compressed by ${result.reduction_percent}% and downloaded.`);
       setCompressModalFile(null);
       setCompressResult(null);
-      retireResult(file.download);
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Download failed.");
+    }
+  }
+
+  async function useCompressedForDeal() {
+    const file = compressModalFile;
+    const result = compressResult;
+    if (!file || !result) return;
+    setResults((prev) =>
+      prev.map((f) =>
+        f.download === file.download
+          ? { ...f, name: result.name, size: result.compressed_size, download: result.download, compressed: true }
+          : f,
+      ),
+    );
+    await api.deleteProcessedFile(file.download).catch(() => undefined);
+    setToast(`${file.name} replaced with the compressed version (−${result.reduction_percent}%) for this deal.`);
+    setCompressModalFile(null);
+    setCompressResult(null);
+  }
+
+  async function compressAll() {
+    const currentJobId = jobIdRef.current;
+    const targets = results.filter((f) => !f.compressed);
+    if (!currentJobId || targets.length === 0) return;
+
+    setBatchCompressing(true);
+    let successCount = 0;
+    let reductionSum = 0;
+    try {
+      await Promise.all(
+        targets.map(async (file) => {
+          try {
+            const filename = file.download.split("/").pop() || file.name;
+            const result = await api.compressProcessedFile(currentJobId, filename, batchPreset);
+            setResults((prev) =>
+              prev.map((f) =>
+                f.download === file.download
+                  ? {
+                      ...f,
+                      name: result.name,
+                      size: result.compressed_size,
+                      download: result.download,
+                      compressed: true,
+                    }
+                  : f,
+              ),
+            );
+            await api.deleteProcessedFile(file.download).catch(() => undefined);
+            successCount += 1;
+            reductionSum += result.reduction_percent;
+          } catch {
+            /* leave this one as-is; summary below reflects the shortfall */
+          }
+        }),
+      );
+    } finally {
+      setBatchCompressing(false);
+    }
+
+    if (successCount > 0) {
+      const avg = Math.round(reductionSum / successCount);
+      setToast(
+        `Compressed ${successCount} file${successCount === 1 ? "" : "s"} for this deal (avg −${avg}%).`,
+      );
+    } else {
+      setToast("Compression failed for all files.");
     }
   }
 
@@ -790,11 +847,41 @@ export default function SubmitDealPage() {
         </section>
 
         <section className="card panel aquamark-step aquamark-results">
-          <h2>Processed files</h2>
+          <div className="aquamark-results-header">
+            <h2>Processed files</h2>
+            {results.length > 0 && (
+              <div className="aquamark-batch-actions">
+                <select
+                  className="aquamark-batch-preset"
+                  value={batchPreset}
+                  onChange={(e) => setBatchPreset(e.target.value as CompressPreset)}
+                  disabled={batchCompressing}
+                  aria-label="Batch compression preset"
+                >
+                  {COMPRESS_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={compressAll}
+                  disabled={batchCompressing || results.every((f) => f.compressed)}
+                >
+                  {batchCompressing
+                    ? "Compressing all…"
+                    : `Compress all (${results.filter((f) => !f.compressed).length})`}
+                </button>
+              </div>
+            )}
+          </div>
           {results.length === 0 ? (
             <p className="aquamark-hint">
-              Watermarked files are temporary — removed after download or email send, or when you
-              leave this page.
+              Watermarked files stay here — pick Download for the original, or Compress to shrink
+              it (with the option to use the compressed version for this deal's email). Files are
+              only removed when you send the email, remove them manually, or leave this page.
             </p>
           ) : (
             <div className="aquamark-results-grid">
@@ -802,46 +889,46 @@ export default function SubmitDealPage() {
                 <div key={group.funder} className="aquamark-results-column">
                   <h3 className="aquamark-results-funder">{group.funder}</h3>
                   <ul className="aquamark-results-list">
-                    {group.files.map((f) => {
-                      const isDownloaded = justDownloaded.has(f.download);
-                      return (
-                        <li
-                          key={f.name}
-                          className={`aquamark-result-item${isDownloaded ? " is-downloaded" : ""}`}
-                        >
-                          <span className="file-icon success">✓</span>
-                          <span className="file-meta">
-                            <strong>{f.name}</strong>
-                            <small>{(f.size / 1024).toFixed(1)} KB</small>
-                          </span>
-                          {isDownloaded ? (
-                            <span className="aquamark-result-done">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              Downloaded
-                            </span>
-                          ) : (
-                            <div className="aquamark-result-actions">
-                              <button
-                                type="button"
-                                className="btn btn-primary btn-xs"
-                                onClick={() => onDownload(f)}
-                              >
-                                Download
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-xs"
-                                onClick={() => openCompressModal(f)}
-                              >
-                                Compress…
-                              </button>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
+                    {group.files.map((f) => (
+                      <li key={f.name} className="aquamark-result-item">
+                        <span className="file-icon success">✓</span>
+                        <span className="file-meta">
+                          <strong>{f.name}</strong>
+                          <small>
+                            {(f.size / 1024).toFixed(1)} KB
+                            {f.compressed && <span className="aquamark-result-badge">Compressed</span>}
+                          </small>
+                        </span>
+                        <div className="aquamark-result-actions">
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-xs"
+                            disabled={batchCompressing}
+                            onClick={() => onDownload(f)}
+                          >
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            disabled={batchCompressing}
+                            onClick={() => openCompressModal(f)}
+                          >
+                            Compress…
+                          </button>
+                          <button
+                            type="button"
+                            className="aquamark-file-remove"
+                            disabled={batchCompressing}
+                            onClick={() => onRemoveResult(f)}
+                            title={`Remove ${f.name} from this deal`}
+                            aria-label={`Remove ${f.name} from this deal`}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               ))}
@@ -1021,8 +1108,11 @@ export default function SubmitDealPage() {
               <button type="button" className="btn btn-secondary" onClick={closeCompressModal}>
                 Cancel
               </button>
-              <button type="button" className="btn btn-primary" onClick={downloadCompressedResult}>
-                Download compressed file
+              <button type="button" className="btn btn-secondary" onClick={downloadCompressedCopy}>
+                Download compressed copy
+              </button>
+              <button type="button" className="btn btn-primary" onClick={useCompressedForDeal}>
+                Use compressed for this deal
               </button>
             </div>
           ) : (
@@ -1058,8 +1148,9 @@ export default function SubmitDealPage() {
         )}
 
         <p className="aquamark-hint">
-          Pick a compression preset, then compress. The original watermarked PDF is untouched
-          until you choose which version to download.
+          Pick a compression preset, then compress. Once you see the result, either download a
+          one-off compressed copy (the deal keeps using the original for sending), or replace this
+          file with the compressed version so Step 4 sends the smaller one.
         </p>
 
         <div className="compress-preset-grid">
