@@ -42,6 +42,14 @@ ADMIN_PASSWORD = "Nationwide1!"
 
 app = FastAPI(title="VAT Portal API", version="1.0.0")
 
+# EXTRA_CORS_ORIGINS: comma-separated origins (e.g. a Vercel deployment URL)
+# so new frontend hosts can be allowed via an env var instead of a redeploy.
+_extra_origins = [
+    origin.strip()
+    for origin in os.getenv("EXTRA_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -53,6 +61,7 @@ app.add_middleware(
         "http://127.0.0.1:3011",
         "https://internalportal.nationwideadvance.com",
         "https://watermark.solutions90.com",
+        *_extra_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],

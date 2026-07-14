@@ -1,8 +1,15 @@
-"""JSON file persistence for portal configuration."""
+"""Portal configuration persistence.
+
+Local dev: a JSON file under data/ (unchanged from before).
+Render (or anywhere with no persistent disk): set MONGODB_URI and this
+switches to a single document in MongoDB Atlas's free tier instead, since
+Render's free web services lose local disk contents on every restart.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -14,6 +21,20 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 STORE_PATH = DATA_DIR / "store.json"
 _lock = threading.Lock()
 
+_MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
+_mongo_collection = None
+
+
+def _get_mongo_collection():
+    global _mongo_collection
+    if _mongo_collection is None:
+        from pymongo import MongoClient  # lazy import: not required for local JSON-file dev
+
+        db_name = os.getenv("MONGODB_DB", "subsportal")
+        client = MongoClient(_MONGODB_URI)
+        _mongo_collection = client[db_name]["config"]
+    return _mongo_collection
+
 
 def _default_store() -> dict[str, Any]:
     return {
@@ -24,6 +45,16 @@ def _default_store() -> dict[str, Any]:
 
 
 def load_store() -> dict[str, Any]:
+    if _MONGODB_URI:
+        with _lock:
+            doc = _get_mongo_collection().find_one({"_id": "store"})
+            if doc is None:
+                store = _default_store()
+                save_store(store)
+                return store
+            doc.pop("_id", None)
+            return doc
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not STORE_PATH.is_file():
         store = _default_store()
@@ -34,6 +65,11 @@ def load_store() -> dict[str, Any]:
 
 
 def save_store(store: dict[str, Any]) -> None:
+    if _MONGODB_URI:
+        with _lock:
+            _get_mongo_collection().replace_one({"_id": "store"}, {**store, "_id": "store"}, upsert=True)
+        return
+
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with _lock:
         STORE_PATH.write_text(json.dumps(store, indent=2), encoding="utf-8")
