@@ -880,8 +880,8 @@ export default function SubmitDealPage() {
           {results.length === 0 ? (
             <p className="aquamark-hint">
               Watermarked files stay here — pick Download for the original, or Compress to shrink
-              it (with the option to use the compressed version for this deal's email). Files are
-              only removed when you send the email, remove them manually, or leave this page.
+              it (with the option to use the compressed version for this deal&apos;s email). Files
+              are only removed when you send the email, remove them manually, or leave this page.
             </p>
           ) : (
             <div className="aquamark-results-grid">
