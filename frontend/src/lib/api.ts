@@ -1,9 +1,18 @@
-import type { Brand, Funder, ProcessedFile, Team } from "./types";
+import { getSession } from "./auth";
+import type { Brand, Funder, ProcessedFile, Team, User } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+export function authHeaders(): Record<string, string> {
+  const session = getSession();
+  return session?.token ? { Authorization: `Bearer ${session.token}` } : {};
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...(init.headers || {}) },
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (data as { detail?: unknown }).detail;
@@ -18,11 +27,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   login(email: string, password: string) {
-    return request<{ ok: boolean; email: string; token: string }>("/api/auth/login", {
+    return request<{
+      ok: boolean;
+      token: string;
+      user: { id: number; name: string; email: string; role: "admin" | "employee" };
+    }>("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+  },
+  logout() {
+    return request<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
   },
 
   getBrands() {
@@ -101,9 +117,40 @@ export const api = {
     });
   },
 
+  getUsers() {
+    return request<{ ok: boolean; data: User[] }>("/api/users");
+  },
+  createUser(user: { name: string; email: string; role: string; password: string }) {
+    return request<{ ok: boolean; data: User[] }>("/api/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(user),
+    });
+  },
+  updateUser(id: number, user: { name: string; email: string; role: string }) {
+    return request<{ ok: boolean; data: User[] }>(`/api/users/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(user),
+    });
+  },
+  deleteUser(id: number) {
+    return request<{ ok: boolean; data: User[] }>(`/api/users/${id}`, {
+      method: "DELETE",
+    });
+  },
+  resetUserPassword(id: number, password: string) {
+    return request<{ ok: boolean }>(`/api/users/${id}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+  },
+
   async processAquamark(form: FormData) {
     const res = await fetch(`${API_BASE}/api/aquamark/process`, {
       method: "POST",
+      headers: { ...authHeaders() },
       body: form,
     });
     const data = await res.json().catch(() => ({}));

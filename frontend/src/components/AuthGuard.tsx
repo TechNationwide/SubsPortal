@@ -1,15 +1,31 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getSession } from "@/lib/auth";
 
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+type Props = {
+  children: React.ReactNode;
+  adminOnly?: boolean;
+};
+
+export function AuthGuard({ children, adminOnly = false }: Props) {
   const router = useRouter();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!getSession()) router.replace("/login");
-  }, [router]);
+    const session = getSession();
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+    if (adminOnly && session.role !== "admin") {
+      router.replace("/submit");
+      return;
+    }
+    setReady(true);
+  }, [router, adminOnly]);
 
+  if (!ready) return null;
   return <>{children}</>;
 }

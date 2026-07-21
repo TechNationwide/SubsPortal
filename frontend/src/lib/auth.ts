@@ -1,6 +1,12 @@
 const SESSION_KEY = "vat_portal_session";
 
-export type Session = { email: string; token: string };
+export type Session = {
+  id: number;
+  name: string;
+  email: string;
+  role: "admin" | "employee";
+  token: string;
+};
 
 export function getSession(): Session | null {
   if (typeof window === "undefined") return null;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 import { clearSession, getSession, type Session } from "@/lib/auth";
 
 const NAV = [
@@ -10,7 +11,10 @@ const NAV = [
   { id: "teams", label: "Teams", href: "/teams" },
   { id: "brands", label: "Brands", href: "/brands" },
   { id: "funders", label: "Funders", href: "/funders" },
+  { id: "users", label: "Users", href: "/users" },
 ];
+
+const ADMIN_ONLY_NAV_IDS = new Set(["teams", "brands", "funders", "users"]);
 
 type Props = {
   title: string;
@@ -27,10 +31,19 @@ export function PortalShell({ title, subtitle, children }: Props) {
     setSession(getSession());
   }, []);
 
-  function logout() {
+  async function logout() {
+    try {
+      await api.logout();
+    } catch {
+      /* session may already be gone server-side; clear it locally regardless */
+    }
     clearSession();
     router.replace("/login");
   }
+
+  const visibleNav = NAV.filter(
+    (p) => session?.role === "admin" || !ADMIN_ONLY_NAV_IDS.has(p.id),
+  );
 
   return (
     <div className="portal-shell">
@@ -50,7 +63,7 @@ export function PortalShell({ title, subtitle, children }: Props) {
               </div>
             </div>
             <nav className="site-nav" aria-label="Portal pages">
-              {NAV.map((p) => (
+              {visibleNav.map((p) => (
                 <Link
                   key={p.id}
                   href={p.href}

@@ -31,3 +31,13 @@ export type ProcessedFile = {
   recipient_email?: string;
   compressed?: boolean;
 };
+
+export type Role = "admin" | "employee";
+
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+  is_active: boolean;
+};

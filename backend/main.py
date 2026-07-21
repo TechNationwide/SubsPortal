@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import secrets
 import shutil
 import uuid
 from pathlib import Path
@@ -15,32 +14,60 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+import psycopg2
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from aquamark_client import aquamark_configured, describe_integration, process_batch
 from compressor import CompressionPreset, compress_pdf
-from email_client import send_email, sendgrid_configured
-from pdf_processor import flatten_pdf
-from storage import (
+from db import (
+    count_admins,
+    create_session,
+    create_user,
+    delete_session,
+    delete_user,
     get_brands,
     get_funders,
     get_teams,
+    get_user_by_token,
+    list_users,
+    reset_password,
     save_brands,
     save_funders,
     save_teams,
     sync_funders_after_brand_removal,
+    update_user,
+    verify_login,
 )
+from email_client import send_email, sendgrid_configured
+from pdf_processor import flatten_pdf
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-ADMIN_EMAIL = "admin@nationwideadvance.com"
-ADMIN_PASSWORD = "Nationwide1!"
-
 app = FastAPI(title="VAT Portal API", version="1.0.0")
+
+
+def require_auth(authorization: str = Header(default="")) -> dict[str, Any]:
+    token = (
+        authorization[7:].strip()
+        if authorization.lower().startswith("bearer ")
+        else authorization.strip()
+    )
+    if not token:
+        raise HTTPException(401, "Not authenticated.")
+    user = get_user_by_token(token)
+    if not user:
+        raise HTTPException(401, "Session expired or invalid.")
+    return user
+
+
+def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any]:
+    if user["role"] != "admin":
+        raise HTTPException(403, "Admin access required.")
+    return user
 
 # EXTRA_CORS_ORIGINS: comma-separated origins (e.g. a Vercel deployment URL)
 # so new frontend hosts can be allowed via an env var instead of a redeploy.
@@ -138,6 +165,27 @@ class EmailSendBody(BaseModel):
     attachments: list[str] = Field(default_factory=list)
 
 
+class UserBody(BaseModel):
+    name: str
+    email: str
+    role: str
+
+
+class UserCreateBody(UserBody):
+    password: str
+
+
+class PasswordResetBody(BaseModel):
+    password: str
+
+
+def _validate_role(role: str) -> str:
+    role = role.strip().lower()
+    if role not in ("admin", "employee"):
+        raise HTTPException(400, "Role must be 'admin' or 'employee'.")
+    return role
+
+
 def _parse_attachment_path(path: str) -> tuple[str, str] | None:
     match = re.fullmatch(r"/api/aquamark/download/([a-f0-9]{12})/(.+)", path.strip())
     if not match:
@@ -207,21 +255,32 @@ def login(body: LoginBody):
     email = body.email.strip()
     if not email:
         raise HTTPException(400, "Email is required.")
-    if not (
-        secrets.compare_digest(email.lower(), ADMIN_EMAIL.lower())
-        and secrets.compare_digest(body.password, ADMIN_PASSWORD)
-    ):
+    user = verify_login(email, body.password)
+    if not user:
         raise HTTPException(401, "Invalid email or password.")
-    return {"ok": True, "email": ADMIN_EMAIL, "token": "session"}
+    token = create_session(user["id"])
+    return {"ok": True, "token": token, "user": user}
+
+
+@app.post("/api/auth/logout")
+def logout(authorization: str = Header(default="")):
+    token = (
+        authorization[7:].strip()
+        if authorization.lower().startswith("bearer ")
+        else authorization.strip()
+    )
+    if token:
+        delete_session(token)
+    return {"ok": True}
 
 
 @app.get("/api/brands")
-def list_brands():
+def list_brands(_user=Depends(require_auth)):
     return {"ok": True, "data": get_brands()}
 
 
 @app.post("/api/brands")
-def create_brand(body: BrandBody):
+def create_brand(body: BrandBody, _admin=Depends(require_admin)):
     brands = get_brands()
     payload = _brand_payload(body)
     brands.append(payload)
@@ -230,7 +289,7 @@ def create_brand(body: BrandBody):
 
 
 @app.put("/api/brands/{index}")
-def update_brand(index: int, body: BrandBody):
+def update_brand(index: int, body: BrandBody, _admin=Depends(require_admin)):
     brands = get_brands()
     if index < 0 or index >= len(brands):
         raise HTTPException(404, "Brand not found.")
@@ -240,7 +299,7 @@ def update_brand(index: int, body: BrandBody):
 
 
 @app.delete("/api/brands/{index}")
-def delete_brand(index: int):
+def delete_brand(index: int, _admin=Depends(require_admin)):
     brands = get_brands()
     if len(brands) <= 1:
         raise HTTPException(400, "At least one brand is required.")
@@ -253,12 +312,12 @@ def delete_brand(index: int):
 
 
 @app.get("/api/funders")
-def list_funders():
+def list_funders(_user=Depends(require_auth)):
     return {"ok": True, "data": get_funders()}
 
 
 @app.post("/api/funders")
-def create_funder(body: FunderBody):
+def create_funder(body: FunderBody, _admin=Depends(require_admin)):
     funders = get_funders()
     funders.append(_funder_payload(body))
     save_funders(funders)
@@ -266,7 +325,7 @@ def create_funder(body: FunderBody):
 
 
 @app.put("/api/funders/{index}")
-def update_funder(index: int, body: FunderBody):
+def update_funder(index: int, body: FunderBody, _admin=Depends(require_admin)):
     funders = get_funders()
     if index < 0 or index >= len(funders):
         raise HTTPException(404, "Funder not found.")
@@ -276,7 +335,7 @@ def update_funder(index: int, body: FunderBody):
 
 
 @app.delete("/api/funders/{index}")
-def delete_funder(index: int):
+def delete_funder(index: int, _admin=Depends(require_admin)):
     funders = get_funders()
     if len(funders) <= 1:
         raise HTTPException(400, "At least one funder is required.")
@@ -288,12 +347,12 @@ def delete_funder(index: int):
 
 
 @app.get("/api/teams")
-def list_teams():
+def list_teams(_user=Depends(require_auth)):
     return {"ok": True, "data": get_teams()}
 
 
 @app.post("/api/teams")
-def create_team(body: TeamBody):
+def create_team(body: TeamBody, _admin=Depends(require_admin)):
     teams = get_teams()
     members = [m.model_dump() for m in body.members]
     if not members:
@@ -311,7 +370,7 @@ def create_team(body: TeamBody):
 
 
 @app.put("/api/teams/{team_id}")
-def update_team(team_id: str, body: TeamBody):
+def update_team(team_id: str, body: TeamBody, _admin=Depends(require_admin)):
     teams = get_teams()
     idx = next((i for i, t in enumerate(teams) if t["id"] == team_id), None)
     if idx is None:
@@ -331,7 +390,7 @@ def update_team(team_id: str, body: TeamBody):
 
 
 @app.delete("/api/teams/{team_id}")
-def delete_team(team_id: str):
+def delete_team(team_id: str, _admin=Depends(require_admin)):
     teams = get_teams()
     if len(teams) <= 1:
         raise HTTPException(400, "At least one team is required.")
@@ -343,13 +402,69 @@ def delete_team(team_id: str):
     return {"ok": True, "data": teams}
 
 
+@app.get("/api/users")
+def list_users_endpoint(_admin=Depends(require_admin)):
+    return {"ok": True, "data": list_users()}
+
+
+@app.post("/api/users")
+def create_user_endpoint(body: UserCreateBody, _admin=Depends(require_admin)):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    role = _validate_role(body.role)
+    name = body.name.strip()
+    email = body.email.strip()
+    if not name or not email:
+        raise HTTPException(400, "Name and email are required.")
+    try:
+        create_user(name, email, role, body.password)
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(409, "A user with that email already exists.")
+    return {"ok": True, "data": list_users()}
+
+
+@app.put("/api/users/{user_id}")
+def update_user_endpoint(user_id: int, body: UserBody, _admin=Depends(require_admin)):
+    role = _validate_role(body.role)
+    if role != "admin" and count_admins(exclude_user_id=user_id) < 1:
+        raise HTTPException(400, "At least one admin is required.")
+    name = body.name.strip()
+    email = body.email.strip()
+    if not name or not email:
+        raise HTTPException(400, "Name and email are required.")
+    try:
+        update_user(user_id, name, email, role)
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(409, "A user with that email already exists.")
+    return {"ok": True, "data": list_users()}
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user_endpoint(user_id: int, _admin=Depends(require_admin)):
+    if count_admins(exclude_user_id=user_id) < 1:
+        raise HTTPException(400, "At least one admin is required.")
+    delete_user(user_id)
+    return {"ok": True, "data": list_users()}
+
+
+@app.post("/api/users/{user_id}/reset-password")
+def reset_password_endpoint(
+    user_id: int, body: PasswordResetBody, _admin=Depends(require_admin)
+):
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    reset_password(user_id, body.password)
+    return {"ok": True}
+
+
 @app.get("/api/aquamark/status")
-def aquamark_status():
+def aquamark_status(_user=Depends(require_auth)):
     """Aquamark API integration status."""
     return {"ok": True, **describe_integration()}
 
 @app.post("/api/aquamark/process")
 async def process_documents(
+    _user=Depends(require_auth),
     brand_name: str = Form(...),
     deal_name: str = Form("Deal"),
     aquamark_user_email: str = Form(""),
@@ -482,14 +597,14 @@ async def process_documents(
 
 
 @app.delete("/api/aquamark/job/{job_id}")
-def delete_aquamark_job(job_id: str):
+def delete_aquamark_job(job_id: str, _user=Depends(require_auth)):
     if not _delete_job(job_id):
         raise HTTPException(404, "Job not found or already removed.")
     return {"ok": True}
 
 
 @app.delete("/api/aquamark/download/{job_id}/{filename}")
-def delete_processed_file(job_id: str, filename: str):
+def delete_processed_file(job_id: str, filename: str, _user=Depends(require_auth)):
     safe_name = Path(filename).name
     if not _delete_processed_file(job_id, safe_name):
         raise HTTPException(404, "File not found or already removed.")
@@ -497,7 +612,7 @@ def delete_processed_file(job_id: str, filename: str):
 
 
 @app.get("/api/aquamark/download/{job_id}/{filename}")
-def download_file(job_id: str, filename: str):
+def download_file(job_id: str, filename: str, _user=Depends(require_auth)):
     if not re.fullmatch(r"[a-f0-9]{12}", job_id):
         raise HTTPException(400, "Invalid job id.")
     safe_name = Path(filename).name
@@ -521,6 +636,7 @@ def compress_processed_file(
     job_id: str,
     filename: str,
     preset: str = Body("balanced", embed=True),
+    _user=Depends(require_auth),
 ):
     if not re.fullmatch(r"[a-f0-9]{12}", job_id):
         raise HTTPException(400, "Invalid job id.")
@@ -556,12 +672,12 @@ def compress_processed_file(
 
 
 @app.get("/api/email/status")
-def email_status():
+def email_status(_user=Depends(require_auth)):
     return {"ok": True, "configured": sendgrid_configured()}
 
 
 @app.post("/api/emails/send")
-def send_deal_email(body: EmailSendBody):
+def send_deal_email(body: EmailSendBody, _user=Depends(require_auth)):
     if not sendgrid_configured():
         raise HTTPException(
             503,

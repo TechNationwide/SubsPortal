@@ -17,8 +17,14 @@ export default function LoginPage() {
     const password = String(form.get("password") || "");
     try {
       const res = await api.login(email, password);
-      setSession({ email: res.email, token: res.token });
-      router.push("/teams");
+      setSession({
+        id: res.user.id,
+        name: res.user.name,
+        email: res.user.email,
+        role: res.user.role,
+        token: res.token,
+      });
+      router.push(res.user.role === "admin" ? "/teams" : "/submit");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     }

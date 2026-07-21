@@ -5,7 +5,7 @@ import { PortalShell } from "@/components/PortalShell";
 import { BrandSearchSelect } from "@/components/BrandSearchSelect";
 import { FunderMultiSelect } from "@/components/FunderMultiSelect";
 import { Modal } from "@/components/Modal";
-import { api, downloadUrl } from "@/lib/api";
+import { api, authHeaders, downloadUrl } from "@/lib/api";
 import type { Brand, Funder, ProcessedFile, Team } from "@/lib/types";
 
 type EmailDraft = {
@@ -326,7 +326,7 @@ export default function SubmitDealPage() {
   }
 
   async function downloadFile(downloadPath: string, filename: string) {
-    const res = await fetch(downloadUrl(downloadPath));
+    const res = await fetch(downloadUrl(downloadPath), { headers: authHeaders() });
     if (!res.ok) throw new Error("Download failed.");
     const blob = await res.blob();
     const objectUrl = URL.createObjectURL(blob);
