@@ -85,6 +85,15 @@ def _raw_request(
     method: str, url: str, *, headers: dict[str, str], data: bytes | None = None, timeout: int = 120, log_label: str = "iDea"
 ) -> tuple[int, bytes, str]:
     req = Request(url, data=data, method=method)
+    # iDea's endpoints sit behind Cloudflare, which blocks urllib's default
+    # "Python-urllib/x.y" User-Agent as a bot signature (their 403 "error
+    # code: 1010" response) before the request ever reaches iDea's API.
+    # A normal browser-like User-Agent avoids that block.
+    req.add_header(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36",
+    )
     for key, value in headers.items():
         req.add_header(key, value)
 
