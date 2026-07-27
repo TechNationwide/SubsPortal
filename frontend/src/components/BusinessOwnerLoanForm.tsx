@@ -35,9 +35,9 @@ export const emptyOwnerDetails = (): OwnerDetails => ({
 });
 
 export const emptyLoanDetails = (): LoanDetails => ({
-  requested_amount: 0,
-  loan_purpose: "",
-  desired_term_months: null,
+  requested_amount: 250000,
+  loan_purpose: "Working Capital",
+  desired_term_months: 18,
   average_monthly_revenue: null,
   average_daily_balance: null,
 });
