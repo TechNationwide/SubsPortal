@@ -125,6 +125,12 @@ def _request(method: str, path: str, *, body: dict[str, Any], timeout: int = 120
         raise RuntimeError(f"Channel API unreachable ({method} {path}): {exc}") from exc
 
 
+def _is_success(response_value: Any) -> bool:
+    """Channel's API returns "Response" as a JSON boolean `true` on success,
+    not the string "true" - Deluge coerces this silently, Python doesn't."""
+    return response_value is True or (isinstance(response_value, str) and response_value.lower() == "true")
+
+
 def _clean_phone(phone: str) -> str:
     phone = (phone or "").strip()
     if phone.startswith("+1"):
@@ -159,7 +165,7 @@ def submit_application(
         file_body = {"Request": {"Filename": filename, "Category": 1, "Data": base64.b64encode(data).decode("ascii")}}
         _, raw, content_type = _request("POST", f"/application/addfile/{application_id}?api-version=2.0", body=file_body)
         file_resp = json.loads(raw)
-        if file_resp.get("Response") != "true" or file_resp.get("Errors") is not None:
+        if not _is_success(file_resp.get("Response")) or file_resp.get("Errors") is not None:
             raise RuntimeError(f"Channel addfile failed for {filename}: {json.dumps(file_resp, indent=2)}")
 
     entity_type = (business.get("entity_type") or "").strip().lower()
@@ -199,7 +205,7 @@ def submit_application(
     }
     _, raw, content_type = _request("POST", f"/application/addbusiness/{application_id}?api-version=2.0", body=deal_body)
     deal_resp = json.loads(raw)
-    if deal_resp.get("Response") != "true" or deal_resp.get("Errors") is not None:
+    if not _is_success(deal_resp.get("Response")) or deal_resp.get("Errors") is not None:
         raise RuntimeError(f"Channel addbusiness failed: {json.dumps(deal_resp, indent=2)}")
 
     contact_body = {
@@ -222,7 +228,7 @@ def submit_application(
     }
     _, raw, content_type = _request("POST", f"/application/addcontact/{application_id}?api-version=2.0", body=contact_body)
     contact_resp = json.loads(raw)
-    if contact_resp.get("Response") != "true" or contact_resp.get("Errors") is not None:
+    if not _is_success(contact_resp.get("Response")) or contact_resp.get("Errors") is not None:
         raise RuntimeError(f"Channel addcontact failed: {json.dumps(contact_resp, indent=2)}")
 
     return {"ok": True, "application_id": application_id}
