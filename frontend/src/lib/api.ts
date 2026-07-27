@@ -1,5 +1,18 @@
 import { getSession } from "./auth";
-import type { Brand, Funder, ProcessedFile, Team, User } from "./types";
+import type {
+  Brand,
+  BusinessDetails,
+  Funder,
+  LoanDetails,
+  OwnerDetails,
+  PartnerBrandAssignments,
+  PartnerFunderKey,
+  PartnerIntegrationStatus,
+  PartnerSubmission,
+  ProcessedFile,
+  Team,
+  User,
+} from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -211,6 +224,169 @@ export const api = {
       body: JSON.stringify({ preset }),
     });
   },
+
+  partners: {
+    getStatus() {
+      return request<{ ok: boolean; partners: Record<string, PartnerIntegrationStatus> }>(
+        "/api/partners/status",
+      );
+    },
+    getBrandAssignments() {
+      return request<{ ok: boolean; data: PartnerBrandAssignments }>("/api/partners/brand-assignments");
+    },
+    setBrandAssignment(funderKey: PartnerFunderKey, brandIndex: number | null) {
+      return request<{ ok: boolean; data: PartnerBrandAssignments }>(
+        `/api/partners/brand-assignments/${funderKey}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ brand_index: brandIndex }),
+        },
+      );
+    },
+    listSubmissions(statusIn?: string[]) {
+      const qs = statusIn?.length ? `?status_in=${statusIn.join(",")}` : "";
+      return request<{ ok: boolean; data: PartnerSubmission[] }>(`/api/partners/submissions${qs}`);
+    },
+    deleteSubmission(id: number) {
+      return request<{ ok: boolean }>(`/api/partners/submissions/${id}`, { method: "DELETE" });
+    },
+
+    ondeckSubmit(payload: PartnerSubmissionCreatePayload) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        "/api/partners/ondeck/submit-application",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      );
+    },
+    ondeckSendDocuments(submissionId: number, jobId: string, filenames: string[]) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/ondeck/${submissionId}/send-documents`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId, filenames }),
+        },
+      );
+    },
+
+    canCreate(payload: PartnerSubmissionCreatePayload) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        "/api/partners/can/create-application",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      );
+    },
+    canSendDocuments(
+      submissionId: number,
+      jobId: string,
+      filenames: string[],
+      applicationDocument?: File | null,
+    ) {
+      const form = new FormData();
+      form.append("job_id", jobId);
+      form.append("filenames", JSON.stringify(filenames));
+      if (applicationDocument) {
+        form.append("application_document", applicationDocument, applicationDocument.name);
+      }
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/can/${submissionId}/send-documents`,
+        { method: "POST", body: form },
+      );
+    },
+    canProcess(submissionId: number, consentAccepted: boolean) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/can/${submissionId}/process-application`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ consent_accepted: consentAccepted }),
+        },
+      );
+    },
+
+    // PEAC and Channel are single-call submissions - business/owner data
+    // plus every file (bank statements + application doc) all go in one
+    // request, so these take the same job_id/filenames/applicationDocument
+    // shape as canSendDocuments, merged with the create payload.
+    peacSubmit(
+      payload: PartnerSubmissionCreatePayload,
+      jobId: string,
+      filenames: string[],
+      applicationDocument?: File | null,
+    ) {
+      const form = new FormData();
+      form.append("payload", JSON.stringify(payload));
+      form.append("job_id", jobId);
+      form.append("filenames", JSON.stringify(filenames));
+      if (applicationDocument) {
+        form.append("application_document", applicationDocument, applicationDocument.name);
+      }
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        "/api/partners/peac/submit-application",
+        { method: "POST", body: form },
+      );
+    },
+    channelSubmit(
+      payload: PartnerSubmissionCreatePayload,
+      jobId: string,
+      filenames: string[],
+      applicationDocument?: File | null,
+    ) {
+      const form = new FormData();
+      form.append("payload", JSON.stringify(payload));
+      form.append("job_id", jobId);
+      form.append("filenames", JSON.stringify(filenames));
+      if (applicationDocument) {
+        form.append("application_document", applicationDocument, applicationDocument.name);
+      }
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        "/api/partners/channel/submit-application",
+        { method: "POST", body: form },
+      );
+    },
+
+    ideaCreate(payload: PartnerSubmissionCreatePayload) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        "/api/partners/idea/create-application",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      );
+    },
+    ideaSendDocuments(
+      submissionId: number,
+      jobId: string,
+      filenames: string[],
+      applicationDocument?: File | null,
+    ) {
+      const form = new FormData();
+      form.append("job_id", jobId);
+      form.append("filenames", JSON.stringify(filenames));
+      if (applicationDocument) {
+        form.append("application_document", applicationDocument, applicationDocument.name);
+      }
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/idea/${submissionId}/send-documents`,
+        { method: "POST", body: form },
+      );
+    },
+    ideaProcess(submissionId: number, consentAccepted: boolean) {
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/idea/${submissionId}/process-application`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ consent_accepted: consentAccepted }),
+        },
+      );
+    },
+  },
+};
+
+export type PartnerSubmissionCreatePayload = {
+  brand_name: string;
+  deal_name: string;
+  aquamark_job_id: string;
+  business: BusinessDetails;
+  owners: OwnerDetails[];
+  loan: LoanDetails;
 };
 
 export function downloadUrl(path: string) {

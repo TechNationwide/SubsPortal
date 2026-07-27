@@ -328,3 +328,165 @@ def reset_password(user_id: int, password: str) -> None:
             "UPDATE users SET password_hash=%s, updated_at=now() WHERE id=%s",
             (pw_hash, user_id),
         )
+
+
+# ───────────────────────── partner submissions (funder API tab) ─────────────────────────
+
+_PARTNER_SUBMISSION_COLUMNS = (
+    "id", "funder_key", "brand_name", "deal_name", "created_by_user_id",
+    "aquamark_job_id", "external_id", "status",
+    "business_details", "owner_details", "loan_details", "last_error",
+    "created_at", "updated_at",
+)
+
+
+def create_partner_submission(
+    *,
+    funder_key: str,
+    brand_name: str,
+    deal_name: str,
+    created_by_user_id: int,
+    business_details: dict[str, Any],
+    owner_details: list[dict[str, Any]],
+    loan_details: dict[str, Any],
+    aquamark_job_id: str = "",
+) -> dict[str, Any]:
+    with _cursor() as cur:
+        cur.execute(
+            "INSERT INTO partner_submissions "
+            "(funder_key, brand_name, deal_name, created_by_user_id, aquamark_job_id, "
+            " business_details, owner_details, loan_details) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+            f"RETURNING {', '.join(_PARTNER_SUBMISSION_COLUMNS)}",
+            (
+                funder_key,
+                brand_name,
+                deal_name,
+                created_by_user_id,
+                aquamark_job_id,
+                psycopg2.extras.Json(business_details),
+                psycopg2.extras.Json(owner_details),
+                psycopg2.extras.Json(loan_details),
+            ),
+        )
+        return dict(cur.fetchone())
+
+
+def get_partner_submission(submission_id: int) -> dict[str, Any] | None:
+    with _cursor() as cur:
+        cur.execute(
+            f"SELECT {', '.join(_PARTNER_SUBMISSION_COLUMNS)} FROM partner_submissions WHERE id=%s",
+            (submission_id,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def list_partner_submissions(
+    created_by_user_id: int, status_in: list[str] | None = None
+) -> list[dict[str, Any]]:
+    with _cursor() as cur:
+        if status_in:
+            cur.execute(
+                f"SELECT {', '.join(_PARTNER_SUBMISSION_COLUMNS)} FROM partner_submissions "
+                "WHERE created_by_user_id=%s AND status = ANY(%s) ORDER BY id DESC",
+                (created_by_user_id, status_in),
+            )
+        else:
+            cur.execute(
+                f"SELECT {', '.join(_PARTNER_SUBMISSION_COLUMNS)} FROM partner_submissions "
+                "WHERE created_by_user_id=%s ORDER BY id DESC",
+                (created_by_user_id,),
+            )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def update_partner_submission(submission_id: int, **fields: Any) -> dict[str, Any] | None:
+    """Patches any subset of external_id/status/last_error/aquamark_job_id."""
+    allowed = {"external_id", "status", "last_error", "aquamark_job_id"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return get_partner_submission(submission_id)
+    set_clause = ", ".join(f"{k}=%s" for k in updates)
+    with _cursor() as cur:
+        cur.execute(
+            f"UPDATE partner_submissions SET {set_clause}, updated_at=now() WHERE id=%s "
+            f"RETURNING {', '.join(_PARTNER_SUBMISSION_COLUMNS)}",
+            (*updates.values(), submission_id),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def delete_partner_submission(submission_id: int) -> None:
+    with _cursor() as cur:
+        cur.execute("DELETE FROM partner_submissions WHERE id=%s", (submission_id,))
+
+
+def add_partner_submission_event(
+    submission_id: int, *, action: str, ok: bool, http_status: int | None, message: str = ""
+) -> None:
+    with _cursor() as cur:
+        cur.execute(
+            "INSERT INTO partner_submission_events (submission_id, action, ok, http_status, message) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (submission_id, action, ok, http_status, message),
+        )
+
+
+def list_partner_submission_events(submission_id: int) -> list[dict[str, Any]]:
+    with _cursor() as cur:
+        cur.execute(
+            "SELECT id, action, ok, http_status, message, created_at "
+            "FROM partner_submission_events WHERE submission_id=%s ORDER BY id",
+            (submission_id,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac")
+
+
+def get_partner_brand_assignments() -> dict[str, dict[str, Any] | None]:
+    """Keyed by funder_key; each value is {brand_index, brand_name} or None.
+
+    Brands are addressed by ordinal position (ORDER BY id) everywhere else
+    in this API (see get_funders()/save_funders()) - this translates the
+    stored real brand_id back to that same "index" contract at read time.
+    """
+    with _cursor() as cur:
+        cur.execute("SELECT id, name FROM brands ORDER BY id")
+        ordered = [dict(r) for r in cur.fetchall()]
+        index_by_id = {b["id"]: i for i, b in enumerate(ordered)}
+
+        cur.execute("SELECT funder_key, brand_id FROM partner_brand_assignments WHERE brand_id IS NOT NULL")
+        assigned = {r["funder_key"]: r["brand_id"] for r in cur.fetchall()}
+
+    result: dict[str, dict[str, Any] | None] = {}
+    for key in _PARTNER_KEYS:
+        brand_id = assigned.get(key)
+        if brand_id is not None and brand_id in index_by_id:
+            idx = index_by_id[brand_id]
+            result[key] = {"brand_index": idx, "brand_name": ordered[idx]["name"]}
+        else:
+            result[key] = None
+    return result
+
+
+def set_partner_brand_assignment(funder_key: str, brand_index: int | None) -> None:
+    brand_id: int | None = None
+    if brand_index is not None:
+        with _cursor() as cur:
+            cur.execute("SELECT id FROM brands ORDER BY id")
+            ids = [r["id"] for r in cur.fetchall()]
+        if brand_index < 0 or brand_index >= len(ids):
+            raise ValueError("Invalid brand index.")
+        brand_id = ids[brand_index]
+
+    with _cursor() as cur:
+        cur.execute(
+            "INSERT INTO partner_brand_assignments (funder_key, brand_id, updated_at) "
+            "VALUES (%s,%s,now()) "
+            "ON CONFLICT (funder_key) DO UPDATE SET brand_id=EXCLUDED.brand_id, updated_at=now()",
+            (funder_key, brand_id),
+        )

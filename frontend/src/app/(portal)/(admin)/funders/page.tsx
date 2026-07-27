@@ -5,7 +5,8 @@ import { PortalShell } from "@/components/PortalShell";
 import { Modal } from "@/components/Modal";
 import { BrandMultiSelect } from "@/components/BrandMultiSelect";
 import { api } from "@/lib/api";
-import type { Brand, Funder, TeamMember } from "@/lib/types";
+import { PARTNER_ROSTER } from "@/lib/partners";
+import type { Brand, Funder, PartnerBrandAssignments, TeamMember } from "@/lib/types";
 
 const emptyCcMember = (): TeamMember => ({ name: "", email: "" });
 
@@ -25,12 +26,33 @@ export default function FundersPage() {
   const [form, setForm] = useState<Funder>(EMPTY_FUNDER);
   const [formCcMembers, setFormCcMembers] = useState<TeamMember[]>([emptyCcMember()]);
   const [toast, setToast] = useState("");
+  const [partnerBrands, setPartnerBrands] = useState<PartnerBrandAssignments>({});
+  const [savingPartnerKey, setSavingPartnerKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [fundersRes, brandsRes] = await Promise.all([api.getFunders(), api.getBrands()]);
+    const [fundersRes, brandsRes, partnerBrandsRes] = await Promise.all([
+      api.getFunders(),
+      api.getBrands(),
+      api.partners.getBrandAssignments(),
+    ]);
     setFunders(fundersRes.data);
     setBrands(brandsRes.data);
+    setPartnerBrands(partnerBrandsRes.data);
   }, []);
+
+  async function onChangePartnerBrand(key: (typeof PARTNER_ROSTER)[number]["key"], value: string) {
+    const brandIndex = value === "" ? null : Number(value);
+    setSavingPartnerKey(key);
+    try {
+      const res = await api.partners.setBrandAssignment(key, brandIndex);
+      setPartnerBrands(res.data);
+      setToast(brandIndex === null ? `Cleared brand for ${key}.` : `Assigned brand for ${key}.`);
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Failed to update assignment.");
+    } finally {
+      setSavingPartnerKey(null);
+    }
+  }
 
   useEffect(() => {
     load().catch((e) => setToast(e.message));
@@ -250,6 +272,58 @@ export default function FundersPage() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="card panel config-card">
+        <div className="config-card-header">
+          <div>
+            <h2>API Partner Brands</h2>
+            <p>
+              Assign one brand to each funder-partner API. On the API Partners submission page,
+              selecting a partner automatically uses its assigned brand&apos;s watermark/Aquamark
+              account &mdash; no brand selection needed there.
+            </p>
+          </div>
+          <span className="config-badge">Admin</span>
+        </div>
+
+        <div className="crm-table-wrap">
+          <table className="crm-table">
+            <thead>
+              <tr>
+                <th>Partner</th>
+                <th>Assigned brand</th>
+              </tr>
+            </thead>
+            <tbody>
+              {PARTNER_ROSTER.map((p) => {
+                const assignment = partnerBrands[p.key];
+                return (
+                  <tr key={p.key}>
+                    <td>
+                      <strong>{p.label}</strong>
+                      {!p.apiReady && <span className="aquamark-hint"> &mdash; coming soon</span>}
+                    </td>
+                    <td>
+                      <select
+                        value={assignment ? String(assignment.brand_index) : ""}
+                        onChange={(e) => onChangePartnerBrand(p.key, e.target.value)}
+                        disabled={savingPartnerKey === p.key}
+                      >
+                        <option value="">&mdash; No brand assigned &mdash;</option>
+                        {brands.map((b, i) => (
+                          <option key={i} value={i}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

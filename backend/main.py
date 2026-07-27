@@ -20,28 +20,47 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+import can_client
+import channel_client
+import idea_client
+import ondeck_client
+import peac_client
 from aquamark_client import aquamark_configured, describe_integration, process_batch
 from compressor import CompressionPreset, compress_pdf
 from db import (
+    add_partner_submission_event,
     count_admins,
     create_session,
     create_user,
+    delete_partner_submission,
     delete_session,
     delete_user,
     get_brands,
     get_funders,
+    get_partner_brand_assignments,
+    get_partner_submission,
     get_teams,
     get_user_by_token,
+    list_partner_submissions,
     list_users,
     reset_password,
     save_brands,
     save_funders,
     save_teams,
+    set_partner_brand_assignment,
     sync_funders_after_brand_removal,
+    update_partner_submission,
     update_user,
     verify_login,
+    create_partner_submission,
 )
 from email_client import send_email, sendgrid_configured
+from partner_models import (
+    BrandAssignmentBody,
+    PartnerSubmissionCreateBody,
+    ProcessApplicationBody,
+    SendDocumentsBody,
+)
 from pdf_processor import flatten_pdf
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
@@ -705,3 +724,486 @@ def send_deal_email(body: EmailSendBody, _user=Depends(require_auth)):
     _cleanup_attachment_paths(body.attachments)
 
     return {"ok": True, **result}
+
+
+# ───────────────────────── API Partners (OnDeck / CAN Capital) ─────────────────────────
+#
+# Fixed roster of 5 named funder-partner integrations, separate from the
+# dynamic `Funders` CRM list above. Only OnDeck and CAN have real client
+# modules (ondeck_client.py / can_client.py); channel/peac/idea have no
+# client module or credentials anywhere, so there is no code path that
+# could ever reach those hosts. Every OnDeck/CAN call-making endpoint below
+# checks *_configured() first and 503s before any network call — and
+# neither ONDECK_*/CAN_* env vars are set anywhere today, so none of this
+# can fire a real request until a human deliberately adds credentials to a
+# specific environment for the joint test session with the client.
+
+
+def _read_processed_file(job_id: str, filename: str) -> bytes:
+    if not re.fullmatch(r"[a-f0-9]{12}", job_id):
+        raise HTTPException(400, "Invalid job id.")
+    file_path = OUTPUT_DIR / job_id / Path(filename).name
+    if not file_path.is_file():
+        raise HTTPException(404, f"Processed file not found: {filename}")
+    return file_path.read_bytes()
+
+
+def _get_owned_submission(submission_id: int, user: dict[str, Any]) -> dict[str, Any]:
+    submission = get_partner_submission(submission_id)
+    if not submission or submission["created_by_user_id"] != user["id"]:
+        raise HTTPException(404, "Submission not found.")
+    return submission
+
+
+def _log_event(submission_id: int, action: str, ok: bool, http_status: int | None, message: str = "") -> None:
+    add_partner_submission_event(submission_id, action=action, ok=ok, http_status=http_status, message=message)
+
+
+@app.get("/api/partners/status")
+def partners_status(_user=Depends(require_auth)):
+    return {
+        "ok": True,
+        "partners": {
+            "ondeck": ondeck_client.describe_integration(),
+            "can": can_client.describe_integration(),
+            "idea": idea_client.describe_integration(),
+            "channel": channel_client.describe_integration(),
+            "peac": peac_client.describe_integration(),
+        },
+    }
+
+
+_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac")
+
+
+@app.get("/api/partners/brand-assignments")
+def partners_get_brand_assignments(_user=Depends(require_auth)):
+    return {"ok": True, "data": get_partner_brand_assignments()}
+
+
+@app.put("/api/partners/brand-assignments/{funder_key}")
+def partners_set_brand_assignment(funder_key: str, body: BrandAssignmentBody, _admin=Depends(require_admin)):
+    if funder_key not in _PARTNER_KEYS:
+        raise HTTPException(404, "Unknown partner.")
+    try:
+        set_partner_brand_assignment(funder_key, body.brand_index)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "data": get_partner_brand_assignments()}
+
+
+@app.get("/api/partners/submissions")
+def partners_list_submissions(status_in: str = "", user=Depends(require_auth)):
+    statuses = [s.strip() for s in status_in.split(",") if s.strip()] or None
+    return {"ok": True, "data": list_partner_submissions(user["id"], statuses)}
+
+
+@app.get("/api/partners/submissions/{submission_id}")
+def partners_get_submission(submission_id: int, user=Depends(require_auth)):
+    return {"ok": True, "data": _get_owned_submission(submission_id, user)}
+
+
+@app.delete("/api/partners/submissions/{submission_id}")
+def partners_delete_submission(submission_id: int, user=Depends(require_auth)):
+    _get_owned_submission(submission_id, user)
+    delete_partner_submission(submission_id)
+    return {"ok": True}
+
+
+@app.post("/api/partners/ondeck/submit-application")
+def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+    if not ondeck_client.ondeck_configured():
+        raise HTTPException(
+            503, "OnDeck is not configured. Set ONDECK_USERNAME/ONDECK_PASSWORD/ONDECK_API_KEY in backend/.env."
+        )
+
+    submission = create_partner_submission(
+        funder_key="ondeck",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=body.aquamark_job_id,
+    )
+    try:
+        result = ondeck_client.submit_application(
+            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump()
+        )
+    except ValueError as exc:
+        _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission["id"], "ondeck_submit_application", True, 201, f"businessID={result['business_id']}")
+    updated = update_partner_submission(submission["id"], status="submitted", external_id=result["business_id"])
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/ondeck/{submission_id}/send-documents")
+def ondeck_send_documents(submission_id: int, body: SendDocumentsBody, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if submission["status"] not in ("submitted", "docs_sent"):
+        raise HTTPException(400, "Submit the application to OnDeck before sending documents.")
+    if not ondeck_client.ondeck_configured():
+        raise HTTPException(
+            503, "OnDeck is not configured. Set ONDECK_USERNAME/ONDECK_PASSWORD/ONDECK_API_KEY in backend/.env."
+        )
+
+    files = [(Path(name).name, _read_processed_file(body.job_id, name)) for name in body.filenames]
+    try:
+        result = ondeck_client.upload_documents(submission["external_id"], files)
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission_id, "ondeck_send_documents", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission_id, "ondeck_send_documents", True, 200, json.dumps(result))
+    updated = update_partner_submission(submission_id, status="docs_sent")
+    return {"ok": True, "data": updated}
+
+
+@app.get("/api/partners/ondeck/{submission_id}/status")
+def ondeck_submission_status(submission_id: int, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if not ondeck_client.ondeck_configured():
+        raise HTTPException(503, "OnDeck is not configured.")
+    try:
+        return {"ok": True, "data": ondeck_client.get_status(submission["external_id"])}
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.post("/api/partners/can/create-application")
+def can_create_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+    if not can_client.can_configured():
+        raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
+
+    submission = create_partner_submission(
+        funder_key="can",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=body.aquamark_job_id,
+    )
+    try:
+        result = can_client.create_application(
+            body.business.model_dump(),
+            body.owners[0].model_dump(),
+            body.loan.model_dump(),
+            rep_name=user["name"],
+            rep_email=user["email"],
+        )
+    except RuntimeError as exc:
+        _log_event(submission["id"], "can_create_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission["id"], "can_create_application", True, 200, f"application={result['application_name']}")
+    updated = update_partner_submission(
+        submission["id"], status="submitted", external_id=result["application_name"]
+    )
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/can/{submission_id}/send-documents")
+async def can_send_documents(
+    submission_id: int,
+    job_id: str = Form(...),
+    filenames: str = Form(...),
+    application_document: UploadFile | None = File(None),
+    user=Depends(require_auth),
+):
+    submission = _get_owned_submission(submission_id, user)
+    if submission["status"] not in ("submitted", "docs_sent"):
+        raise HTTPException(400, "Create the CAN application before sending documents.")
+    if not can_client.can_configured():
+        raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
+
+    try:
+        filename_list = json.loads(filenames)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid filenames JSON.") from None
+    if not filename_list:
+        raise HTTPException(400, "At least one filename is required.")
+
+    # CAN's uploaddocs endpoint is one document per request (per CLSI docs),
+    # unlike OnDeck's /documents which accepts a batch — only the first
+    # selected bank-statement file is sent here.
+    bs_filename = Path(filename_list[0]).name
+    bs_data = _read_processed_file(job_id, bs_filename)
+    try:
+        result = can_client.upload_document(
+            submission["external_id"], bs_filename, bs_data, document_type="Bank Statements"
+        )
+        # The application document (if provided) is sent as-is — no
+        # watermark/flatten/compress — as its own "Application" document
+        # type, separate from the bank statements upload above.
+        if application_document is not None and application_document.filename:
+            app_filename = Path(application_document.filename).name
+            app_bytes = await application_document.read()
+            app_result = can_client.upload_document(
+                submission["external_id"], app_filename, app_bytes, document_type="Application"
+            )
+            _log_event(
+                submission_id, "can_send_application_document", True, app_result.get("status"), json.dumps(app_result)
+            )
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission_id, "can_send_documents", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission_id, "can_send_documents", True, result.get("status"), json.dumps(result))
+    updated = update_partner_submission(submission_id, status="docs_sent")
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/can/{submission_id}/process-application")
+def can_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if submission["status"] != "docs_sent":
+        raise HTTPException(400, "Send documents to CAN before processing the application.")
+    if not can_client.can_configured():
+        raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
+
+    try:
+        result = can_client.process_application(submission["external_id"], body.consent_accepted)
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission_id, "can_process_application", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(400 if isinstance(exc, ValueError) else 502, str(exc)) from exc
+
+    _log_event(submission_id, "can_process_application", True, 200, json.dumps(result))
+    updated = update_partner_submission(submission_id, status="processed")
+    return {"ok": True, "data": updated}
+
+
+@app.get("/api/partners/can/{submission_id}/status")
+def can_submission_status(submission_id: int, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if not can_client.can_configured():
+        raise HTTPException(503, "CAN Capital is not configured.")
+    try:
+        return {"ok": True, "data": can_client.get_application_status(submission["external_id"])}
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _parse_partner_payload(payload: str) -> PartnerSubmissionCreateBody:
+    try:
+        return PartnerSubmissionCreateBody.model_validate_json(payload)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Invalid payload JSON: {exc}") from exc
+
+
+def _parse_filenames(filenames: str) -> list[str]:
+    try:
+        parsed = json.loads(filenames)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid filenames JSON.") from None
+    if not isinstance(parsed, list) or not parsed:
+        raise HTTPException(400, "At least one filename is required.")
+    return [str(f) for f in parsed]
+
+
+@app.post("/api/partners/peac/submit-application")
+async def peac_submit_application(
+    payload: str = Form(...),
+    job_id: str = Form(""),
+    filenames: str = Form("[]"),
+    application_document: UploadFile | None = File(None),
+    user=Depends(require_auth),
+):
+    if not peac_client.peac_configured():
+        raise HTTPException(
+            503, "PEAC is not configured. Set PEAC_USERNAME/PEAC_PASSWORD/PEAC_API_KEY/PEAC_PARTNER_ID in backend/.env."
+        )
+    body = _parse_partner_payload(payload)
+
+    submission = create_partner_submission(
+        funder_key="peac",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=job_id,
+    )
+
+    files: list[tuple[str, bytes, str]] = []
+    filename_list = json.loads(filenames) if filenames else []
+    for idx, name in enumerate(filename_list):
+        bs_name = Path(str(name)).name
+        data = _read_processed_file(job_id, bs_name)
+        files.append((bs_name, data, f"FS - Bank Statements - {idx + 1}"))
+    if application_document is not None and application_document.filename:
+        app_name = Path(application_document.filename).name
+        app_bytes = await application_document.read()
+        files.append((app_name, app_bytes, "FS - Credit Application"))
+
+    try:
+        result = peac_client.submit_application(
+            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump(),
+            lead_id=str(submission["id"]), files=files,
+        )
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission["id"], "peac_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(400 if isinstance(exc, ValueError) else 502, str(exc)) from exc
+
+    _log_event(submission["id"], "peac_submit_application", True, 200, json.dumps(result))
+    updated = update_partner_submission(submission["id"], status="submitted", external_id=f"peac-{submission['id']}")
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/channel/submit-application")
+async def channel_submit_application(
+    payload: str = Form(...),
+    job_id: str = Form(""),
+    filenames: str = Form("[]"),
+    application_document: UploadFile | None = File(None),
+    user=Depends(require_auth),
+):
+    if not channel_client.channel_configured():
+        raise HTTPException(503, "Channel is not configured. Set CHANNEL_API_TOKEN/CHANNEL_USER_EMAIL in backend/.env.")
+    body = _parse_partner_payload(payload)
+
+    submission = create_partner_submission(
+        funder_key="channel",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=job_id,
+    )
+
+    files: list[tuple[str, bytes]] = []
+    filename_list = json.loads(filenames) if filenames else []
+    for name in filename_list:
+        bs_name = Path(str(name)).name
+        files.append((bs_name, _read_processed_file(job_id, bs_name)))
+    if application_document is not None and application_document.filename:
+        app_name = Path(application_document.filename).name
+        files.append((app_name, await application_document.read()))
+
+    try:
+        result = channel_client.submit_application(
+            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump(), files=files,
+        )
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission["id"], "channel_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(400 if isinstance(exc, ValueError) else 502, str(exc)) from exc
+
+    _log_event(submission["id"], "channel_submit_application", True, 200, json.dumps(result))
+    updated = update_partner_submission(
+        submission["id"], status="submitted", external_id=str(result.get("application_id", ""))
+    )
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/idea/create-application")
+def idea_create_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+    if not idea_client.idea_configured():
+        raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")
+
+    submission = create_partner_submission(
+        funder_key="idea",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=body.aquamark_job_id,
+    )
+    try:
+        result = idea_client.create_application(
+            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump()
+        )
+    except RuntimeError as exc:
+        _log_event(submission["id"], "idea_create_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission["id"], "idea_create_application", True, 200, f"application_id={result['application_id']}")
+    updated = update_partner_submission(submission["id"], status="submitted", external_id=result["application_id"])
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/idea/{submission_id}/send-documents")
+async def idea_send_documents(
+    submission_id: int,
+    job_id: str = Form(...),
+    filenames: str = Form(...),
+    application_document: UploadFile | None = File(None),
+    user=Depends(require_auth),
+):
+    submission = _get_owned_submission(submission_id, user)
+    if submission["status"] not in ("submitted", "docs_sent"):
+        raise HTTPException(400, "Create the iDea application before sending documents.")
+    if not idea_client.idea_configured():
+        raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")
+
+    filename_list = _parse_filenames(filenames)
+    try:
+        if application_document is not None and application_document.filename:
+            app_name = Path(application_document.filename).name
+            app_bytes = await application_document.read()
+            idea_client.upload_document(submission["external_id"], app_name, app_bytes, document_type="application")
+        for name in filename_list:
+            bs_name = Path(name).name
+            data = _read_processed_file(job_id, bs_name)
+            idea_client.upload_document(submission["external_id"], bs_name, data, document_type="bank-statement")
+    except (ValueError, RuntimeError) as exc:
+        _log_event(submission_id, "idea_send_documents", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission_id, "idea_send_documents", True, 200, "uploaded")
+    updated = update_partner_submission(submission_id, status="docs_sent")
+    return {"ok": True, "data": updated}
+
+
+@app.post("/api/partners/idea/{submission_id}/process-application")
+def idea_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if submission["status"] != "docs_sent":
+        raise HTTPException(400, "Send documents to iDea before processing the application.")
+    if not idea_client.idea_configured():
+        raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")
+    if body.consent_accepted is not True:
+        raise HTTPException(400, "Consent is required to process an application.")
+
+    try:
+        result = idea_client.process_application(submission["external_id"])
+    except RuntimeError as exc:
+        _log_event(submission_id, "idea_process_application", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
+
+    _log_event(submission_id, "idea_process_application", True, 200, json.dumps(result))
+    updated = update_partner_submission(submission_id, status="processed")
+    return {"ok": True, "data": updated}
+
+
+@app.get("/api/partners/idea/{submission_id}/status")
+def idea_submission_status(submission_id: int, user=Depends(require_auth)):
+    submission = _get_owned_submission(submission_id, user)
+    if not idea_client.idea_configured():
+        raise HTTPException(503, "iDea Financial is not configured.")
+    try:
+        return {"ok": True, "data": idea_client.get_status(submission["external_id"])}
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc

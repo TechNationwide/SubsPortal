@@ -5050,3 +5050,257 @@
   font-size: 14px;
   line-height: 1.55;
 }
+
+/* ── API Partners tab ── */
+
+.field-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+
+@media (max-width: 720px) {
+  .field-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.partner-form-section-title {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.partner-form-subsection-title {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.partner-form-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.partner-owner-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px 2px;
+  margin-bottom: 14px;
+  background: var(--soft);
+}
+
+.partner-ownership-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #d1fae5;
+  color: var(--success);
+}
+
+.partner-ownership-badge.warn {
+  background: #fef3c7;
+  color: var(--warning);
+}
+
+.partner-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+  margin: 18px 0;
+}
+
+.partner-roster-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 18px 20px;
+  cursor: pointer;
+  font-size: 13px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: all 0.18s var(--ease-out);
+}
+
+.partner-roster-toggle:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08);
+  transform: translateY(-1px);
+}
+
+.partner-roster-toggle:has(input:checked),
+.partner-roster-toggle.active {
+  border-color: var(--primary);
+  background: #eff6ff;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.14);
+}
+
+.partner-roster-toggle:has(input:disabled),
+.partner-roster-toggle.disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+.partner-roster-toggle:has(input:disabled):hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+.partner-roster-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.partner-roster-toggle-check {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border);
+  background: var(--soft);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 900;
+  color: #fff;
+  margin-top: 1px;
+  transition: all 0.15s var(--ease-out);
+}
+
+.partner-roster-toggle:has(input:checked) .partner-roster-toggle-check,
+.partner-roster-toggle.active .partner-roster-toggle-check {
+  background: linear-gradient(135deg, var(--primary-light), var(--primary-dark));
+  border-color: transparent;
+}
+
+.partner-roster-toggle-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.partner-roster-toggle-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.partner-roster-toggle-header strong {
+  font-size: 14.5px;
+}
+
+.partner-roster-toggle-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.partner-ready-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #d1fae5;
+  color: var(--success);
+}
+
+.partner-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.partner-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  background: #fff;
+}
+
+.partner-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.partner-card-header h3 {
+  margin: 0;
+  font-size: 15px;
+  flex: 1;
+}
+
+.partner-status-pill {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.partner-status-pill.status-submitted,
+.partner-status-pill.status-docs_sent {
+  background: #dbeafe;
+  color: #1d4ed8;
+  border-color: transparent;
+}
+
+.partner-status-pill.status-processed {
+  background: #d1fae5;
+  color: var(--success);
+  border-color: transparent;
+}
+
+.partner-status-pill.status-error {
+  background: #fee2e2;
+  color: var(--danger);
+  border-color: transparent;
+}
+
+.partner-external-id {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0;
+}
+
+.partner-error-text {
+  font-size: 12px;
+  color: var(--danger);
+  margin: 4px 0;
+}
+
+.partner-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.partner-consent-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}

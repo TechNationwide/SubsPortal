@@ -62,3 +62,47 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+-- Fixed roster of named funder-partner API integrations (channel/peac/ondeck/can/idea).
+-- Unrelated to the `funders` table above, which is the dynamic email-routing CRM list.
+CREATE TABLE IF NOT EXISTS partner_submissions (
+    id                  BIGSERIAL PRIMARY KEY,
+    funder_key          TEXT NOT NULL CHECK (funder_key IN ('ondeck','can','idea','channel','peac')),
+    brand_name          TEXT NOT NULL,
+    deal_name           TEXT NOT NULL DEFAULT '',
+    created_by_user_id  BIGINT NOT NULL REFERENCES users(id),
+    aquamark_job_id     TEXT NOT NULL DEFAULT '',
+    external_id         TEXT NOT NULL DEFAULT '',
+    status              TEXT NOT NULL DEFAULT 'draft'
+                          CHECK (status IN ('draft','submitted','docs_sent','processed','error')),
+    business_details    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    owner_details       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    loan_details        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    last_error          TEXT NOT NULL DEFAULT '',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_partner_submissions_created_by ON partner_submissions(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_partner_submissions_funder_key ON partner_submissions(funder_key);
+CREATE INDEX IF NOT EXISTS idx_partner_submissions_status ON partner_submissions(status);
+
+-- Audit trail of every attempted funder-API call per submission (masked, no secrets).
+CREATE TABLE IF NOT EXISTS partner_submission_events (
+    id             BIGSERIAL PRIMARY KEY,
+    submission_id  BIGINT NOT NULL REFERENCES partner_submissions(id) ON DELETE CASCADE,
+    action         TEXT NOT NULL,
+    ok             BOOLEAN NOT NULL,
+    http_status    INT,
+    message        TEXT NOT NULL DEFAULT '',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_partner_submission_events_submission_id ON partner_submission_events(submission_id);
+
+-- One brand per partner, assigned once in Funders setup. Selecting a
+-- partner on the submission page auto-resolves its watermark brand/Aquamark
+-- account from this table instead of the user picking a brand manually.
+CREATE TABLE IF NOT EXISTS partner_brand_assignments (
+    funder_key TEXT PRIMARY KEY CHECK (funder_key IN ('ondeck','can','idea','channel','peac')),
+    brand_id   BIGINT REFERENCES brands(id) ON DELETE SET NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
