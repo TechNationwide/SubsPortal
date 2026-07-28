@@ -30,7 +30,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-DEFAULT_BASE = "https://stagingpartners.ondeckcapital.com"
+DEFAULT_BASE = "https://stagingpartners.ondeckcapital.com/api"
 
 _ENTITY_TYPE_MAP = {
     "sole proprietorship": "SP",
