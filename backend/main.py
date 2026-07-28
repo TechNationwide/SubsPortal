@@ -1039,12 +1039,18 @@ async def peac_submit_application(
         aquamark_job_id=job_id,
     )
 
+    # PEAC's Document Type is a fixed picklist confirmed from the reference
+    # Zoho function - month abbreviations, not sequence numbers, and only
+    # four slots exist (Bank_Statement..Bank_Statement_4). Extra files past
+    # the fourth reuse "Apr" since PEAC has no fifth label.
+    _peac_bs_months = ["Jan", "Feb", "Mar", "Apr"]
     files: list[tuple[str, bytes, str]] = []
     filename_list = json.loads(filenames) if filenames else []
     for idx, name in enumerate(filename_list):
         bs_name = Path(str(name)).name
         data = _read_processed_file(job_id, bs_name)
-        files.append((bs_name, data, f"FS - Bank Statements - {idx + 1}"))
+        month = _peac_bs_months[min(idx, len(_peac_bs_months) - 1)]
+        files.append((bs_name, data, f"FS - Bank Statements - {month}"))
     if application_document is not None and application_document.filename:
         app_name = Path(application_document.filename).name
         app_bytes = await application_document.read()

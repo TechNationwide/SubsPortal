@@ -262,14 +262,17 @@ def upload_document(
 
     # S3-style POST policy uploads require the file field last, after all
     # other policy fields, per AWS/Wasabi convention shown in the CLSI doc.
+    # Wasabi actually returns SigV4 fields (x-amz-algorithm/credential/date +
+    # policy + x-amz-signature), not the SigV2 shape (AWSAccessKeyId/signature)
+    # originally assumed here - hardcoding those SigV2 names sent an
+    # unsigned-looking request that Wasabi rejected mid-upload (surfaced as
+    # a broken pipe once we started streaming the file body). Forwarding
+    # whatever fields the presigned response actually contains keeps this
+    # correct regardless of which signing scheme is in play.
     boundary = uuid.uuid4().hex
-    ordered_fields = [
-        ("key", fields["key"]),
-        ("AWSAccessKeyId", fields.get("AWSAccessKeyId", "")),
-        ("policy", fields.get("policy", "")),
-        ("signature", fields.get("signature", "")),
-        ("Content-Type", "application/pdf"),
-    ]
+    ordered_fields = [("key", fields["key"])]
+    ordered_fields += [(k, v) for k, v in fields.items() if k != "key"]
+    ordered_fields.append(("Content-Type", "application/pdf"))
     parts: list[bytes] = []
     for name, value in ordered_fields:
         parts.append(

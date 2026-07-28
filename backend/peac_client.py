@@ -182,7 +182,12 @@ def submit_application(
         "Business Details": _build_business_details(business, owner),
         "Amount Needed": str(loan.get("requested_amount") or ""),
         "Estimated Annual Revenue": str(loan.get("average_monthly_revenue") or ""),
-        "Purpose of Loan": loan.get("loan_purpose") or "Expansion",
+        # PEAC's picklist only accepts a fixed set of values, confirmed as
+        # "Expansion" in the reference Zoho function - the shared loan_purpose
+        # field (free text, e.g. "Working Capital") isn't one of them and
+        # gets rejected, so PEAC always sends this literal value regardless
+        # of what the form has, unlike every other funder here.
+        "Purpose of Loan": "Expansion",
         "Owner Details": [_build_owner_details(owner)],
         "Document Details": doc_list,
     }
