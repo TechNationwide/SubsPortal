@@ -900,7 +900,10 @@ def can_create_application(body: PartnerSubmissionCreateBody, user=Depends(requi
             body.owners[0].model_dump(),
             body.loan.model_dump(),
             rep_name=user["name"],
-            rep_email=user["email"],
+            # Fixed per client request - CAN's status/decline notifications
+            # should always land in this inbox, not whichever SubsPortal
+            # account happens to be logged in when the submit button is hit.
+            rep_email="processing@ajnationwide.com",
         )
     except RuntimeError as exc:
         _log_event(submission["id"], "can_create_application", False, None, str(exc))
