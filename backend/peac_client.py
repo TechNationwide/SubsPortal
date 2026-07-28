@@ -136,6 +136,18 @@ def _build_business_details(business: dict[str, Any], owner: dict[str, Any]) -> 
     }
 
 
+def _as_number(value: Any) -> float:
+    """PEAC's live API rejects Amount Needed/Estimated Annual Revenue sent
+    as strings ("should be numbers only") - confirmed against a real
+    submission, despite the reference Zoho function passing these as
+    Deluge string literals (Deluge's invokeurl serialization isn't strict
+    JSON typing, so that never surfaced this there)."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _build_owner_details(owner: dict[str, Any]) -> dict[str, Any]:
     return {
         "Business Owner Name": f"{owner.get('first_name', '')} {owner.get('last_name', '')}".strip(),
@@ -180,8 +192,8 @@ def submit_application(
         "Broker Number": os.getenv("PEAC_BROKER_NUMBER") or "",
         "Partner Reference Id": lead_id,
         "Business Details": _build_business_details(business, owner),
-        "Amount Needed": str(loan.get("requested_amount") or ""),
-        "Estimated Annual Revenue": str(loan.get("average_monthly_revenue") or ""),
+        "Amount Needed": _as_number(loan.get("requested_amount")),
+        "Estimated Annual Revenue": _as_number(loan.get("average_monthly_revenue")),
         # PEAC's picklist only accepts a fixed set of values, confirmed as
         # "Expansion" in the reference Zoho function - the shared loan_purpose
         # field (free text, e.g. "Working Capital") isn't one of them and

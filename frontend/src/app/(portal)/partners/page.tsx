@@ -74,7 +74,20 @@ export default function ApiPartnersPage() {
 
   const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
   const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
-  const [busyKey, setBusyKey] = useState<PartnerFunderKey | null>(null);
+  // A set, not a single key - submitting to multiple partners at once is
+  // expected (each is an independent request), and a single shared "busy"
+  // value would clear partner A's busy/disabled state the moment partner B
+  // starts, letting a double-click re-fire A's request while it's still in
+  // flight.
+  const [busyKeys, setBusyKeys] = useState<Set<PartnerFunderKey>>(new Set());
+  const setBusy = useCallback((key: PartnerFunderKey, isBusy: boolean) => {
+    setBusyKeys((prev) => {
+      const next = new Set(prev);
+      if (isBusy) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
 
   const [compressModalFile, setCompressModalFile] = useState<ProcessedFile | null>(null);
   const [compressPreset, setCompressPreset] = useState<CompressPreset>("balanced");
@@ -492,7 +505,7 @@ export default function ApiPartnersPage() {
       setToast(validationError);
       return;
     }
-    setBusyKey(key);
+    setBusy(key, true);
     setToast("");
     try {
       let res;
@@ -519,7 +532,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Submission failed.");
     } finally {
-      setBusyKey(null);
+      setBusy(key, false);
     }
   }
 
@@ -533,7 +546,7 @@ export default function ApiPartnersPage() {
       setToast("No watermarked files for this partner yet.");
       return;
     }
-    setBusyKey(key);
+    setBusy(key, true);
     setToast("");
     try {
       const res =
@@ -549,7 +562,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Sending documents failed.");
     } finally {
-      setBusyKey(null);
+      setBusy(key, false);
     }
   }
 
@@ -557,7 +570,7 @@ export default function ApiPartnersPage() {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
     const submission = submissions[key];
     if (!entry || !submission) return;
-    setBusyKey(key);
+    setBusy(key, true);
     setToast("");
     try {
       const res =
@@ -569,7 +582,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Processing failed.");
     } finally {
-      setBusyKey(null);
+      setBusy(key, false);
     }
   }
 
@@ -898,7 +911,7 @@ export default function ApiPartnersPage() {
                   configured={Boolean(partnersStatus[p.key]?.configured)}
                   submission={submissions[p.key] ?? null}
                   files={partnerFiles(p.label)}
-                  busy={busyKey === p.key}
+                  busy={busyKeys.has(p.key)}
                   onSubmit={() => onSubmitPartner(p.key)}
                   onSendDocuments={() => onSendDocumentsPartner(p.key)}
                   onProcess={(consent) => onProcessPartner(p.key, consent)}
