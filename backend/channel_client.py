@@ -198,6 +198,12 @@ def submit_application(
             "BusinessEmail": owner.get("email", ""),
             "OpportunityComments": "",
             "Website": "",
+            # Hardcoded per client request - not in the reference Zoho
+            # function at all, so the field name is an educated guess, not
+            # confirmed against Channel's real schema. If Channel silently
+            # ignores it, this still needs to be set manually until the
+            # correct field name is confirmed with them directly.
+            "UseOfFunds": "Working Capital",
             "BusinessType": business_type_code,
             "InBusinessSince": business.get("business_start_date", ""),
             "Address": [address, billing_address],
