@@ -102,53 +102,63 @@ export function BusinessOwnerLoanForm({
           />
         </div>
         <div className="field">
-          <label htmlFor="bizPhone">Business phone</label>
+          <label htmlFor="bizPhone">Business phone <span className="required">*</span></label>
           <input
             id="bizPhone"
             value={business.phone}
             onChange={(e) => onBusinessChange({ ...business, phone: e.target.value })}
             placeholder="10 digits"
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizTaxId">Federal Tax ID (EIN)</label>
+          <label htmlFor="bizTaxId">Federal Tax ID (EIN) <span className="required">*</span></label>
           <input
             id="bizTaxId"
             value={business.tax_id}
             onChange={(e) => onBusinessChange({ ...business, tax_id: e.target.value })}
             placeholder="9 digits"
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizEntityType">Entity type</label>
+          <label htmlFor="bizEntityType">
+            Entity type <span className="required">*</span>
+          </label>
           <select
             id="bizEntityType"
             value={business.entity_type}
             onChange={(e) => onBusinessChange({ ...business, entity_type: e.target.value })}
+            required
           >
             <option value="">Select…</option>
             {ENTITY_TYPES.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+          {["Partnership", "LLP", "Trust"].includes(business.entity_type) && (
+            <p className="aquamark-hint">Channel only supports Corporation, LLC, or Sole Proprietorship — it will reject this entity type.</p>
+          )}
         </div>
         <div className="field">
-          <label htmlFor="bizStateFormation">State of formation</label>
+          <label htmlFor="bizStateFormation">State of formation <span className="required">*</span></label>
           <input
             id="bizStateFormation"
             value={business.state_of_formation}
             maxLength={2}
             onChange={(e) => onBusinessChange({ ...business, state_of_formation: e.target.value.toUpperCase() })}
             placeholder="e.g. NY"
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizStartDate">Business start date</label>
+          <label htmlFor="bizStartDate">Business start date <span className="required">*</span></label>
           <input
             id="bizStartDate"
             type="date"
             value={business.business_start_date}
             onChange={(e) => onBusinessChange({ ...business, business_start_date: e.target.value })}
+            required
           />
         </div>
         <div className="field">
@@ -164,36 +174,40 @@ export function BusinessOwnerLoanForm({
       <h4 className="partner-form-subsection-title">Billing address</h4>
       <div className="field-grid-2">
         <div className="field">
-          <label htmlFor="bizBillingStreet">Street</label>
+          <label htmlFor="bizBillingStreet">Street <span className="required">*</span></label>
           <input
             id="bizBillingStreet"
             value={business.billing_street}
             onChange={(e) => onBusinessChange({ ...business, billing_street: e.target.value })}
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizBillingCity">City</label>
+          <label htmlFor="bizBillingCity">City <span className="required">*</span></label>
           <input
             id="bizBillingCity"
             value={business.billing_city}
             onChange={(e) => onBusinessChange({ ...business, billing_city: e.target.value })}
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizBillingState">State</label>
+          <label htmlFor="bizBillingState">State <span className="required">*</span></label>
           <input
             id="bizBillingState"
             value={business.billing_state}
             maxLength={2}
             onChange={(e) => onBusinessChange({ ...business, billing_state: e.target.value.toUpperCase() })}
+            required
           />
         </div>
         <div className="field">
-          <label htmlFor="bizBillingZip">ZIP</label>
+          <label htmlFor="bizBillingZip">ZIP <span className="required">*</span></label>
           <input
             id="bizBillingZip"
             value={business.billing_postal_code}
             onChange={(e) => onBusinessChange({ ...business, billing_postal_code: e.target.value })}
+            required
           />
         </div>
       </div>
@@ -249,70 +263,82 @@ export function BusinessOwnerLoanForm({
               />
             </div>
             <div className="field">
-              <label>Ownership %</label>
+              <label>Ownership % <span className="required">*</span></label>
               <input
                 type="number"
                 min={0}
                 max={100}
                 value={owner.ownership_percentage}
                 onChange={(e) => updateOwner(i, { ownership_percentage: Number(e.target.value) })}
+                required
               />
             </div>
             <div className="field">
-              <label>Date of birth</label>
+              <label>Date of birth <span className="required">*</span></label>
               <input
                 type="date"
                 value={owner.date_of_birth}
                 onChange={(e) => updateOwner(i, { date_of_birth: e.target.value })}
+                required
               />
             </div>
             <div className="field">
-              <label>SSN</label>
+              <label>SSN <span className="required">*</span></label>
               <input
                 value={owner.ssn}
                 onChange={(e) => updateOwner(i, { ssn: e.target.value })}
                 placeholder="9 digits"
+                required
               />
             </div>
             <div className="field">
-              <label>Phone</label>
-              <input value={owner.phone} onChange={(e) => updateOwner(i, { phone: e.target.value })} />
+              <label>Phone <span className="required">*</span></label>
+              <input
+                value={owner.phone}
+                onChange={(e) => updateOwner(i, { phone: e.target.value })}
+                required
+              />
             </div>
             <div className="field">
-              <label>Email</label>
+              <label>Email <span className="required">*</span></label>
               <input
                 type="email"
                 value={owner.email}
                 onChange={(e) => updateOwner(i, { email: e.target.value })}
+                required
               />
             </div>
             <div className="field">
-              <label>Mailing street</label>
+              <label>Mailing street <span className="required">*</span></label>
               <input
                 value={owner.mailing_street}
                 onChange={(e) => updateOwner(i, { mailing_street: e.target.value })}
+                required
               />
             </div>
             <div className="field">
-              <label>Mailing city</label>
+              <label>Mailing city <span className="required">*</span></label>
               <input
                 value={owner.mailing_city}
                 onChange={(e) => updateOwner(i, { mailing_city: e.target.value })}
+                required
               />
             </div>
             <div className="field">
-              <label>Mailing state</label>
+              <label>Mailing state <span className="required">*</span></label>
               <input
                 value={owner.mailing_state}
                 maxLength={2}
                 onChange={(e) => updateOwner(i, { mailing_state: e.target.value.toUpperCase() })}
+                required
               />
             </div>
             <div className="field">
-              <label>Mailing ZIP</label>
+              <label>Mailing ZIP <span className="required">*</span></label>
               <input
                 value={owner.mailing_postal_code}
                 onChange={(e) => updateOwner(i, { mailing_postal_code: e.target.value })}
+                required
               />
             </div>
           </div>
@@ -356,7 +382,7 @@ export function BusinessOwnerLoanForm({
           />
         </div>
         <div className="field">
-          <label>Average monthly revenue</label>
+          <label>Average monthly revenue <span className="required">*</span></label>
           <input
             type="number"
             min={0}
@@ -367,10 +393,11 @@ export function BusinessOwnerLoanForm({
                 average_monthly_revenue: e.target.value ? Number(e.target.value) : null,
               })
             }
+            required
           />
         </div>
         <div className="field">
-          <label>Average daily bank balance</label>
+          <label>Average daily bank balance <span className="required">*</span></label>
           <input
             type="number"
             min={0}
@@ -381,6 +408,7 @@ export function BusinessOwnerLoanForm({
                 average_daily_balance: e.target.value ? Number(e.target.value) : null,
               })
             }
+            required
           />
         </div>
       </div>

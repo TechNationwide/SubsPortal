@@ -423,11 +423,73 @@ export default function ApiPartnersPage() {
     return resultsByPartner.get(label) || [];
   }
 
+  const CHANNEL_ENTITY_TYPES = ["corporation", "corp", "llc", "sole proprietorship", "sole prop"];
+
+  // Every field checked here is one that at least one of the 5 funder APIs
+  // will actually reject a submission over — CAN/PEAC/iDea return that as a
+  // live 400 from their real API rather than catching it locally, so this
+  // check has to run before the request ever goes out, not after.
+  function validateForPartner(key: PartnerFunderKey, label: string): string | null {
+    const missing: string[] = [];
+    if (!business.legal_name.trim()) missing.push("legal business name");
+    if (!business.phone.trim()) missing.push("business phone");
+    if (!business.tax_id.trim()) missing.push("tax ID (EIN)");
+    if (!business.entity_type.trim()) missing.push("entity type");
+    if (!business.state_of_formation.trim()) missing.push("state of formation");
+    if (!business.business_start_date.trim()) missing.push("business start date");
+    if (!business.billing_street.trim()) missing.push("billing street");
+    if (!business.billing_city.trim()) missing.push("billing city");
+    if (!business.billing_state.trim()) missing.push("billing state");
+    if (!business.billing_postal_code.trim()) missing.push("billing ZIP");
+
+    owners.forEach((owner, i) => {
+      const n = owners.length > 1 ? ` (owner ${i + 1})` : "";
+      if (!owner.first_name.trim()) missing.push(`owner first name${n}`);
+      if (!owner.last_name.trim()) missing.push(`owner last name${n}`);
+      if (!owner.ssn.trim()) missing.push(`owner SSN${n}`);
+      if (!owner.date_of_birth.trim()) missing.push(`owner date of birth${n}`);
+      if (!owner.phone.trim()) missing.push(`owner phone${n}`);
+      if (!owner.email.trim()) missing.push(`owner email${n}`);
+      if (!owner.mailing_street.trim()) missing.push(`owner mailing street${n}`);
+      if (!owner.mailing_city.trim()) missing.push(`owner mailing city${n}`);
+      if (!owner.mailing_state.trim()) missing.push(`owner mailing state${n}`);
+      if (!owner.mailing_postal_code.trim()) missing.push(`owner mailing ZIP${n}`);
+      if (!owner.ownership_percentage) missing.push(`owner ownership %${n}`);
+    });
+
+    if (!loan.requested_amount) missing.push("requested amount");
+
+    if (missing.length) {
+      return `${label}: fill in ${missing.join(", ")} before submitting.`;
+    }
+
+    if (key === "ondeck") {
+      const totalOwnership = owners.reduce((sum, o) => sum + (Number(o.ownership_percentage) || 0), 0);
+      if (totalOwnership < 50) {
+        return `OnDeck requires at least 50% combined owner ownership (currently ${totalOwnership.toFixed(0)}%) — it auto-declines below that.`;
+      }
+      if (loan.average_monthly_revenue == null || loan.average_daily_balance == null) {
+        return "OnDeck requires both average monthly revenue and average daily balance.";
+      }
+    }
+
+    if (key === "channel" && !CHANNEL_ENTITY_TYPES.includes(business.entity_type.trim().toLowerCase())) {
+      return `Channel only supports Corporation, LLC, or Sole Proprietorship as entity type (got "${business.entity_type}").`;
+    }
+
+    return null;
+  }
+
   async function onSubmitPartner(key: PartnerFunderKey) {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
     const payload = buildCreatePayload(key);
     if (!entry || !payload) {
       setToast("Watermark files for this partner first.");
+      return;
+    }
+    const validationError = validateForPartner(key, entry.label);
+    if (validationError) {
+      setToast(validationError);
       return;
     }
     setBusyKey(key);
