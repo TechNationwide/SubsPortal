@@ -105,6 +105,12 @@ def _raw_request(
     print("\n" + "=" * 72)
     print(f"[{log_label}] >>> {method} {url}")
     print(f"[{log_label}] Request headers: {log_headers}")
+    if data:
+        content_type_header = next((v for k, v in headers.items() if k.lower() == "content-type"), "")
+        if "multipart/form-data" in content_type_header:
+            print(f"[{log_label}] Request body: <multipart, {len(data)} bytes, contents omitted>")
+        else:
+            print(f"[{log_label}] Request body: {_format_response_body(data, content_type_header)}")
 
     try:
         with urlopen(req, timeout=timeout) as resp:
@@ -217,7 +223,11 @@ def create_application(business: dict[str, Any], owners: list[dict[str, Any]], l
         "mobilePhone": owner.get("phone", ""),
         "ssn": owner.get("ssn", ""),
         "fico": 700,
-        "ownershipPercentage": owner.get("ownership_percentage", 100),
+        # iDea rejects this as "not valid" when sent as a JSON float
+        # (e.g. 100.0) - confirmed against a real submission. Their schema
+        # almost certainly binds this to a plain integer, unlike
+        # requestedAmount below which accepts a decimal fine.
+        "ownershipPercentage": int(round(float(owner.get("ownership_percentage") or 100))),
     }
     payload = {
         "agentId": int(os.getenv("IDEA_AGENT_ID") or 0),

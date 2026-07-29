@@ -136,16 +136,20 @@ def _build_business_details(business: dict[str, Any], owner: dict[str, Any]) -> 
     }
 
 
-def _as_number(value: Any) -> float:
+def _as_number(value: Any) -> int:
     """PEAC's live API rejects Amount Needed/Estimated Annual Revenue sent
     as strings ("should be numbers only") - confirmed against a real
-    submission, despite the reference Zoho function passing these as
-    Deluge string literals (Deluge's invokeurl serialization isn't strict
-    JSON typing, so that never surfaced this there)."""
+    submission. A first fix sending these as JSON floats (e.g. 250000.0)
+    still failed the same check - confirmed against a second real
+    submission - so PEAC's validator evidently rejects the decimal point
+    itself, not just non-numeric strings. Whole integers (250000, no
+    ".0") is what the reference Zoho function's string literals ("250000")
+    also happen to look like once you strip the quotes, so this is what
+    actually matches."""
     try:
-        return float(value)
+        return int(round(float(value)))
     except (TypeError, ValueError):
-        return 0.0
+        return 0
 
 
 def _build_owner_details(owner: dict[str, Any]) -> dict[str, Any]:
