@@ -198,14 +198,11 @@ def submit_application(
             "BusinessEmail": owner.get("email", ""),
             "OpportunityComments": "",
             "Website": "",
-            # Hardcoded per client request - "General Working Capital" is
-            # the exact dropdown option text confirmed from Channel's own
-            # portal (not in the reference Zoho function at all). The field
-            # name itself ("UseOfFunds") is still an educated guess, not
-            # confirmed against Channel's real schema - if Channel silently
-            # ignores it, this still needs to be set manually until the
-            # correct field name is confirmed with them directly.
-            "UseOfFunds": "General Working Capital",
+            # "Use of Funds" and address verification are confirmed (by the
+            # client checking Channel's own API field list) to not exist as
+            # API fields at all - they're manual-only fields completed in
+            # Channel's portal after the API creates the record. That's the
+            # entire explanation for applications landing as a draft.
             "BusinessType": business_type_code,
             "InBusinessSince": business.get("business_start_date", ""),
             "Address": [address, billing_address],
