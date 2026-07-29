@@ -282,9 +282,12 @@ def submit_application(
 
 
 def upload_documents(
-    business_id: str, files: list[tuple[str, bytes]], document_need: str = "Bank Statements"
+    business_id: str, files: list[tuple[str, bytes]], document_need: str = "CollectVerify"
 ) -> dict[str, Any]:
-    """POST /v2/application/{businessID}/documents — multipart, one or more files."""
+    """POST /v2/application/{businessID}/documents — multipart, one or more files.
+
+    documentNeed only accepts 'CollectVerify' or 'Closing' (confirmed from a
+    real 400 response) - "Bank Statements" was never a valid value here."""
     if not files:
         raise ValueError("At least one file is required for document upload.")
     body, content_type = _multipart_body(
