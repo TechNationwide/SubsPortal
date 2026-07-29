@@ -1,13 +1,16 @@
 """
 Channel Partners client.
 
-Docs: no written API spec exists - this module is built directly from a
-working Zoho CRM Deluge function (`Send_Lead_to_Channel`) provided by the
-client, saved at repo root in the gitignored folder
-"4 - PEAC Channel iDea Zoho Reference". Channel's API is a single logical
-submission made of 4 sequential calls (start application, add each file,
-add business, add contact) - matching the client's spec of one button
-("Submit to Channel").
+Docs: originally built from a working Zoho CRM Deluge function
+(`Send_Lead_to_Channel`) provided by the client, saved at repo root in the
+gitignored folder "4 - PEAC Channel iDea Zoho Reference". That reference
+only covers 4 calls (start application, add each file, add business, add
+contact) and stops there - which is why every application submitted by it
+(and originally by this module too) sat as a draft. Channel later shared
+the actual API doc showing a 5th call, `/application/end`, which hands the
+application to their internal review team and moves it out of draft into
+"ReadyForReview" - now added as the real final step, matching the client's
+spec of one button ("Submit to Channel").
 
 Environment (backend/.env):
   CHANNEL_API_BASE_URL — optional; default https://apponboarding.cpcapi.com
@@ -235,6 +238,16 @@ def submit_application(
     contact_resp = json.loads(raw)
     if not _is_success(contact_resp.get("Response")) or contact_resp.get("Errors") is not None:
         raise RuntimeError(f"Channel addcontact failed: {json.dumps(contact_resp, indent=2)}")
+
+    # The reference Zoho function stops at addcontact and never calls this -
+    # that's exactly why every prior submission (both Zoho's and ours) sat
+    # as a draft. This is the actual finalize step: it hands the
+    # application to Channel's internal review team and moves its status
+    # from draft to "ReadyForReview".
+    _, raw, content_type = _request("POST", f"/application/end/{application_id}?api-version=2.0", body={})
+    end_resp = json.loads(raw)
+    if not _is_success(end_resp.get("Response")) or end_resp.get("Errors") is not None:
+        raise RuntimeError(f"Channel application/end failed: {json.dumps(end_resp, indent=2)}")
 
     return {"ok": True, "application_id": application_id}
 
