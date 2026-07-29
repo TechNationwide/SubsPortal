@@ -1097,18 +1097,23 @@ async def channel_submit_application(
         aquamark_job_id=job_id,
     )
 
-    files: list[tuple[str, bytes]] = []
+    bank_statement_files: list[tuple[str, bytes]] = []
     filename_list = json.loads(filenames) if filenames else []
     for name in filename_list:
         bs_name = Path(str(name)).name
-        files.append((bs_name, _read_processed_file(job_id, bs_name)))
+        bank_statement_files.append((bs_name, _read_processed_file(job_id, bs_name)))
+    application_file: tuple[str, bytes] | None = None
     if application_document is not None and application_document.filename:
         app_name = Path(application_document.filename).name
-        files.append((app_name, await application_document.read()))
+        application_file = (app_name, await application_document.read())
 
     try:
         result = channel_client.submit_application(
-            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump(), files=files,
+            body.business.model_dump(),
+            [o.model_dump() for o in body.owners],
+            body.loan.model_dump(),
+            bank_statement_files=bank_statement_files,
+            application_file=application_file,
         )
     except (ValueError, RuntimeError) as exc:
         _log_event(submission["id"], "channel_submit_application", False, None, str(exc))

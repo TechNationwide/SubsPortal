@@ -141,14 +141,30 @@ def _clean_phone(phone: str) -> str:
     return phone.replace("-", "")
 
 
+_CATEGORY_BANK_STATEMENT = 1
+_CATEGORY_APPLICATION = 5
+
+
 def submit_application(
     business: dict[str, Any],
     owners: list[dict[str, Any]],
     loan: dict[str, Any],
-    files: list[tuple[str, bytes]],
+    bank_statement_files: list[tuple[str, bytes]],
+    application_file: tuple[str, bytes] | None = None,
 ) -> dict[str, Any]:
-    """Runs the full 4-call sequence in one shot: start application, add
-    each file, add business (deal), add contact (owner)."""
+    """Runs the full 5-call sequence in one shot: start application, add
+    each file, add business (deal), add contact (owner), end (finalize).
+
+    Per Channel's own API doc: "having at least one file with the Category
+    of 'Bank Statement' and a file with the Category of 'Application' is
+    required to submit the application" - Category 1 = Bank Statement,
+    Category 5 = Application. Both this module and the reference Zoho
+    function previously sent every file as Category 1, including the
+    application document - confirmed wrong against the real doc."""
+    if not bank_statement_files:
+        raise ValueError("Channel requires at least one bank statement file to submit an application.")
+    if application_file is None:
+        raise ValueError("Channel requires an application document (Category: Application) to submit an application.")
     owner = owners[0] if owners else {}
     user_email = os.getenv("CHANNEL_USER_EMAIL") or ""
 
@@ -164,8 +180,12 @@ def submit_application(
     if not application_id:
         raise RuntimeError(f"Channel application/start did not return an application id:\n{json.dumps(start_data, indent=2)}")
 
-    for filename, data in files:
-        file_body = {"Request": {"Filename": filename, "Category": 1, "Data": base64.b64encode(data).decode("ascii")}}
+    files_with_category = [(filename, data, _CATEGORY_BANK_STATEMENT) for filename, data in bank_statement_files]
+    if application_file is not None:
+        files_with_category.append((application_file[0], application_file[1], _CATEGORY_APPLICATION))
+
+    for filename, data, category in files_with_category:
+        file_body = {"Request": {"Filename": filename, "Category": category, "Data": base64.b64encode(data).decode("ascii")}}
         _, raw, content_type = _request("POST", f"/application/addfile/{application_id}?api-version=2.0", body=file_body)
         file_resp = json.loads(raw)
         if not _is_success(file_resp.get("Response")) or file_resp.get("Errors") is not None:
