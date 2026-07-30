@@ -829,7 +829,10 @@ def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(re
     )
     try:
         result = ondeck_client.submit_application(
-            body.business.model_dump(), [o.model_dump() for o in body.owners], body.loan.model_dump()
+            body.business.model_dump(),
+            [o.model_dump() for o in body.owners],
+            body.loan.model_dump(),
+            external_customer_id=str(submission["id"]),
         )
     except ValueError as exc:
         _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))

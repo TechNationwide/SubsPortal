@@ -233,7 +233,7 @@ def _build_owner(owner: dict[str, Any]) -> dict[str, Any]:
 
 
 def submit_application(
-    business: dict[str, Any], owners: list[dict[str, Any]], loan: dict[str, Any]
+    business: dict[str, Any], owners: list[dict[str, Any]], loan: dict[str, Any], external_customer_id: str | None = None
 ) -> dict[str, Any]:
     """POST /v2/application — full underwriting submission.
 
@@ -268,6 +268,12 @@ def submit_application(
             "desiredLoanTerm": loan.get("desired_term_months"),
         },
     }
+    if external_customer_id:
+        # Lets OnDeck correlate a submission back to our own record if it
+        # ever comes up in a support conversation - confirmed as a real
+        # field from a working (if outdated/staging) Zoho function, not
+        # currently required but harmless to include.
+        payload["externalCustomerId"] = external_customer_id
     _, raw, content_type = _request("POST", "/v2/application", body=payload)
     try:
         data = json.loads(raw)
