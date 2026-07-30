@@ -1173,13 +1173,22 @@ async def idea_send_documents(
     filename_list = _parse_filenames(filenames)
     try:
         if application_document is not None and application_document.filename:
-            app_name = Path(application_document.filename).name
             app_bytes = await application_document.read()
-            idea_client.upload_document(submission["external_id"], app_name, app_bytes, document_type="application")
-        for name in filename_list:
+            # Sending the real uploaded filename (long, with spaces/parens/
+            # commas from watermarking) caused a raw 500 "error occurred
+            # while saving the entity changes" - an EF/DB-level failure, not
+            # a validation error, meaning iDea's fileName column doesn't
+            # tolerate it. The reference Zoho function never sends the real
+            # filename either - it always uses a short fixed label
+            # ("Application_Form", "Month_N_Bank_Statement") - so this
+            # switches to the same safe convention.
+            idea_client.upload_document(submission["external_id"], "Application_Form.pdf", app_bytes, document_type="application")
+        for idx, name in enumerate(filename_list, start=1):
             bs_name = Path(name).name
             data = _read_processed_file(job_id, bs_name)
-            idea_client.upload_document(submission["external_id"], bs_name, data, document_type="bank-statement")
+            idea_client.upload_document(
+                submission["external_id"], f"Month_{idx}_Bank_Statement.pdf", data, document_type="bank-statement"
+            )
     except (ValueError, RuntimeError) as exc:
         _log_event(submission_id, "idea_send_documents", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
