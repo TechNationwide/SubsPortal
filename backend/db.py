@@ -48,15 +48,26 @@ def _get_pool() -> ThreadedConnectionPool:
 def _cursor():
     pool = _get_pool()
     conn = pool.getconn()
+    broken = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             yield cur
         conn.commit()
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        # The connection itself died (server closed it after being idle,
+        # network blip, etc.) - rolling back on a dead connection just
+        # raises again, and returning it to the pool as if it were healthy
+        # means the next caller gets the same dead connection, and the one
+        # after that, until the pool is full of connections that all raise
+        # immediately - which looks like "pool exhausted" once every slot
+        # is holding a broken connection nobody can use.
+        broken = True
+        raise
     except Exception:
         conn.rollback()
         raise
     finally:
-        pool.putconn(conn)
+        pool.putconn(conn, close=broken)
 
 
 # ───────────────────────── brands ─────────────────────────
