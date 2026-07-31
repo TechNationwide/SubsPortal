@@ -25,6 +25,7 @@ import channel_client
 import idea_client
 import ondeck_client
 import peac_client
+import zoho_client
 from aquamark_client import aquamark_configured, describe_integration, process_batch
 from compressor import CompressionPreset, compress_pdf
 from db import (
@@ -769,6 +770,7 @@ def partners_status(_user=Depends(require_auth)):
             "idea": idea_client.describe_integration(),
             "channel": channel_client.describe_integration(),
             "peac": peac_client.describe_integration(),
+            "zoho": zoho_client.describe_integration(),
         },
     }
 
@@ -1246,4 +1248,36 @@ def idea_submission_status(submission_id: int, user=Depends(require_auth)):
     try:
         return {"ok": True, "data": idea_client.get_status(submission["external_id"])}
     except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+class ZohoLeadUpdateBody(BaseModel):
+    business: BusinessDetailsBody
+    owners: list[OwnerDetailsBody] = Field(min_length=1, max_length=1)
+    loan: LoanDetailsBody
+
+
+@app.get("/api/zoho/leads/{lead_id}")
+def zoho_get_lead(lead_id: str, _user=Depends(require_auth)):
+    if not zoho_client.zoho_configured():
+        raise HTTPException(503, "Zoho CRM is not configured.")
+    try:
+        return {"ok": True, "data": zoho_client.get_lead(lead_id)}
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.put("/api/zoho/leads/{lead_id}")
+def zoho_update_lead(lead_id: str, body: ZohoLeadUpdateBody, _user=Depends(require_auth)):
+    if not zoho_client.zoho_configured():
+        raise HTTPException(503, "Zoho CRM is not configured.")
+    try:
+        result = zoho_client.update_lead(
+            lead_id,
+            body.business.model_dump(),
+            [o.model_dump() for o in body.owners],
+            body.loan.model_dump(),
+        )
+        return {"ok": True, "data": result}
+    except (RuntimeError, ValueError) as exc:
         raise HTTPException(502, str(exc)) from exc

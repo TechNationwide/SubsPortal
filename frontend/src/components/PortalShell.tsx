@@ -13,9 +13,10 @@ const NAV = [
   { id: "brands", label: "Brands", href: "/brands" },
   { id: "funders", label: "Funders", href: "/funders" },
   { id: "users", label: "Users", href: "/users" },
+  { id: "access", label: "Access", href: "/access" },
 ];
 
-const ADMIN_ONLY_NAV_IDS = new Set(["teams", "brands", "funders", "users"]);
+const ADMIN_ONLY_NAV_IDS = new Set(["teams", "brands", "funders", "users", "access"]);
 
 type Props = {
   title: string;
