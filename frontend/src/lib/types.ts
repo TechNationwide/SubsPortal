@@ -84,6 +84,21 @@ export type LoanDetails = {
   average_daily_balance: number | null;
 };
 
+// ─────────────────────── Zoho CRM lookup ───────────────────────
+
+export type ZohoBusinessFields = Omit<BusinessDetails, "industry_naics_code" | "billing_country">;
+
+export type ZohoOwnerFields = Omit<OwnerDetails, "title" | "mailing_country">;
+
+export type ZohoLoanFields = Pick<LoanDetails, "average_monthly_revenue" | "average_daily_balance">;
+
+export type ZohoLeadData = {
+  business: ZohoBusinessFields;
+  owners: ZohoOwnerFields[];
+  loan: ZohoLoanFields;
+  raw: Record<string, unknown>;
+};
+
 export type PartnerFunderKey = "channel" | "peac" | "ondeck" | "can" | "idea";
 
 export type PartnerSubmissionStatus = "draft" | "submitted" | "docs_sent" | "processed" | "error";

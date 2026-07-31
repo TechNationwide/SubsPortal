@@ -12,6 +12,7 @@ import type {
   ProcessedFile,
   Team,
   User,
+  ZohoLeadData,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -375,6 +376,14 @@ export const api = {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ consent_accepted: consentAccepted }),
         },
+      );
+    },
+  },
+
+  zoho: {
+    getLead(leadId: string) {
+      return request<{ ok: boolean; data: ZohoLeadData }>(
+        `/api/zoho/leads/${encodeURIComponent(leadId)}`,
       );
     },
   },

@@ -9,6 +9,7 @@ import { clearSession, getSession, type Session } from "@/lib/auth";
 const NAV = [
   { id: "submit", label: "Submit Deal", href: "/submit" },
   { id: "partners", label: "API Partners", href: "/partners" },
+  { id: "zoho", label: "Zoho Lookup", href: "/zoho" },
   { id: "teams", label: "Teams", href: "/teams" },
   { id: "brands", label: "Brands", href: "/brands" },
   { id: "funders", label: "Funders", href: "/funders" },
