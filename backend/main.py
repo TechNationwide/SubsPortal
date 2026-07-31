@@ -851,7 +851,12 @@ def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(re
 @app.post("/api/partners/ondeck/{submission_id}/send-documents")
 def ondeck_send_documents(submission_id: int, body: SendDocumentsBody, user=Depends(require_auth)):
     submission = _get_owned_submission(submission_id, user)
-    if submission["status"] not in ("submitted", "docs_sent"):
+    # Checking external_id (not status) on purpose: a failed document upload
+    # sets status to "error", and gating on status alone permanently locked
+    # out any retry - even though the application itself was submitted fine
+    # and only the document step needs another attempt. external_id can only
+    # be set once the real OnDeck application was actually created.
+    if not submission.get("external_id"):
         raise HTTPException(400, "Submit the application to OnDeck before sending documents.")
     if not ondeck_client.ondeck_configured():
         raise HTTPException(
@@ -929,7 +934,9 @@ async def can_send_documents(
     user=Depends(require_auth),
 ):
     submission = _get_owned_submission(submission_id, user)
-    if submission["status"] not in ("submitted", "docs_sent"):
+    # See the matching comment in ondeck_send_documents - checking
+    # external_id, not status, so a failed upload attempt can be retried.
+    if not submission.get("external_id"):
         raise HTTPException(400, "Create the CAN application before sending documents.")
     if not can_client.can_configured():
         raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
@@ -975,7 +982,10 @@ async def can_send_documents(
 @app.post("/api/partners/can/{submission_id}/process-application")
 def can_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
     submission = _get_owned_submission(submission_id, user)
-    if submission["status"] != "docs_sent":
+    # Also allow retrying from "error" - a failed process attempt (e.g. a
+    # transient network error) shouldn't need documents re-sent from
+    # scratch just to try processing again.
+    if submission["status"] not in ("docs_sent", "error"):
         raise HTTPException(400, "Send documents to CAN before processing the application.")
     if not can_client.can_configured():
         raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
@@ -1168,7 +1178,9 @@ async def idea_send_documents(
     user=Depends(require_auth),
 ):
     submission = _get_owned_submission(submission_id, user)
-    if submission["status"] not in ("submitted", "docs_sent"):
+    # See the matching comment in ondeck_send_documents - checking
+    # external_id, not status, so a failed upload attempt can be retried.
+    if not submission.get("external_id"):
         raise HTTPException(400, "Create the iDea application before sending documents.")
     if not idea_client.idea_configured():
         raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")
@@ -1205,7 +1217,9 @@ async def idea_send_documents(
 @app.post("/api/partners/idea/{submission_id}/process-application")
 def idea_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
     submission = _get_owned_submission(submission_id, user)
-    if submission["status"] != "docs_sent":
+    # Also allow retrying from "error" - see the matching comment in
+    # can_process_application.
+    if submission["status"] not in ("docs_sent", "error"):
         raise HTTPException(400, "Send documents to iDea before processing the application.")
     if not idea_client.idea_configured():
         raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")

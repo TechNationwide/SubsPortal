@@ -290,29 +290,36 @@ def submit_application(
 def upload_documents(
     business_id: str, files: list[tuple[str, bytes]], document_need: str = "CollectVerify"
 ) -> dict[str, Any]:
-    """POST /v2/application/{businessID}/documents — multipart, one or more files.
+    """POST /v2/application/{businessID}/documents — one call per file.
 
     documentNeed only accepts 'CollectVerify' or 'Closing' (confirmed from a
-    real 400 response) - "Bank Statements" was never a valid value here."""
+    real 400 response) - "Bank Statements" was never a valid value here.
+
+    Originally sent every file bundled into one multipart request - OnDeck's
+    own nginx rejected that with a real "413 Request Entity Too Large" once
+    several bank-statement PDFs were attached at once. Splitting into one
+    POST per file keeps each request small regardless of how many months of
+    statements get attached."""
     if not files:
         raise ValueError("At least one file is required for document upload.")
-    body, content_type = _multipart_body(
-        {},
-        [("file", filename, data) for filename, data in files],
-    )
-    _, raw, resp_content_type = _request(
-        "POST",
-        f"/v2/application/{business_id}/documents",
-        raw_body=body,
-        content_type=content_type,
-        query={"documentNeed": document_need},
-    )
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        raise RuntimeError(
-            f"OnDeck document upload returned invalid JSON:\n{_format_response_body(raw, resp_content_type)}"
-        ) from None
+    results: list[dict[str, Any]] = []
+    for filename, data in files:
+        body, content_type = _multipart_body({}, [("file", filename, data)])
+        _, raw, resp_content_type = _request(
+            "POST",
+            f"/v2/application/{business_id}/documents",
+            raw_body=body,
+            content_type=content_type,
+            query={"documentNeed": document_need},
+        )
+        try:
+            results.append(json.loads(raw))
+        except json.JSONDecodeError:
+            raise RuntimeError(
+                f"OnDeck document upload returned invalid JSON for {filename}:\n"
+                f"{_format_response_body(raw, resp_content_type)}"
+            ) from None
+    return {"ok": True, "results": results}
 
 
 def get_status(business_id: str) -> dict[str, Any]:
