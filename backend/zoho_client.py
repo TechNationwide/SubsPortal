@@ -46,40 +46,42 @@ spreadsheet's stated label, not the first plausible-looking name):
   owners[0].last_name            <-> Last_Name
   owners[0].date_of_birth         <-> Date_Of_Birth        (date — normalized both directions)
   owners[0].ssn                  <-> SSN
-  owners[0].ownership_percentage <-> of_Ownership          (BEST GUESS — see note below)
-  owners[0].phone                <-> Owner_Phone           (BEST GUESS — see note below)
+  owners[0].ownership_percentage <-> of_Ownership          (client-confirmed — see note below)
+  owners[0].phone                <-> Owner_Phone           (label confirmed, API field inferred — see note below)
   owners[0].email                <-> Email                 (owner's own email — standard Zoho field)
   owners[0].mailing_street       <-> Owner_Address
   owners[0].mailing_city         <-> Owner_City
   owners[0].mailing_state        <-> Owner_State
   owners[0].mailing_postal_code  <-> Owner_Zip_Code
 
-  loan.average_monthly_revenue   <-> Annual_Revenue        (naming mismatch — see note below)
+  loan.average_monthly_revenue   <-> Annual_Revenue        (naming mismatch, pass-through confirmed — see note below)
   loan.average_daily_balance     <-> Average_Bank_Revenue
 
-NEEDS CLIENT CONFIRMATION before this is fully trustworthy in production —
-none of these are guesses at the *field to use*, but a few are guesses at
-exact semantics:
-  - `of_Ownership` vs. the separate `Ownership` field: the spreadsheet's label
-    was "% of Ownership", and `of_Ownership` matches Zoho's usual auto-name
-    behavior of stripping a leading "%" from a label. Not the literal field
-    Zoho's UI happens to call "Ownership".
-  - `Owner_Phone` vs. `Phone_1`/`Phone_3`/`Mobile`: the spreadsheet's label was
-    just "Phone 2" (owner-level, since `Phone` is already used by the
-    business). `Owner_Phone` is the best structural fit but wasn't in the
-    spreadsheet by that exact name.
+CLIENT-CONFIRMED (via Waqas, relaying the client):
+  - The spreadsheet's field labels (including "% of Ownership" and
+    "Phone 2") are copy-pasted word for word from Zoho, not paraphrased —
+    which is the basis for picking `of_Ownership` over the separate
+    `Ownership` field (Zoho's auto-name behavior strips a leading "%" from
+    a label) and `Owner_Phone` for "Phone 2" (no field literally named
+    `Phone_2` exists on the live record, so this is confirmed at the label
+    level; the underlying API field is still inferred, not
+    metadata-verified — the fields-metadata endpoint isn't in this Self
+    Client's granted scope).
+  - `Annual_Revenue` / `Average_Bank_Revenue`: pass through as-is, no ×12 or
+    other conversion. Confirmed directly ("the annual revenue is pass
+    through as is") despite the monthly/annual naming mismatch.
+  - Push-back: overwrite the mapped fields directly, no separate
+    status/outcome field. Confirmed directly ("should not set a status,
+    just push pull data") — matches how `update_lead()` already works below.
+
+STILL UNCONFIRMED:
   - `Business_Type` is a multi-select picklist in Zoho (returns a list, e.g.
     `[]` or `["LLC"]`), not free text — this module wraps/unwraps a single
     value into that list. The valid picklist option strings weren't
-    confirmed (the fields-metadata endpoint isn't in this Self Client's
-    granted scope), so this passes the portal's entity_type string straight
-    through as the list's only value. If Zoho rejects an unrecognized
-    picklist option, this is the first place to look.
-  - `Annual_Revenue` / `Average_Bank_Revenue`: the spreadsheet paired these
-    field *names* directly with the portal's "Average Monthly Revenue" and
-    "Average daily bank balance" without flagging a unit conversion, so none
-    is applied here — but "monthly" vs. "Annual" is a real naming mismatch
-    worth a client confirmation before relying on this number downstream.
+    confirmed (same metadata-scope limitation as above), so this passes the
+    portal's entity_type string straight through as the list's only value.
+    If Zoho rejects an unrecognized picklist option, this is the first
+    place to look.
 """
 
 from __future__ import annotations
