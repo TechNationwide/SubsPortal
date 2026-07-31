@@ -1251,10 +1251,48 @@ def idea_submission_status(submission_id: int, user=Depends(require_auth)):
         raise HTTPException(502, str(exc)) from exc
 
 
+class ZohoBusinessBody(BaseModel):
+    """Deliberately separate from BusinessDetailsBody: a Zoho Lead has no
+    industry_naics_code or billing_country field, and none of these should
+    be required — this is a partial update of whatever fields the user
+    actually edited, not a full funder-submission payload."""
+
+    legal_name: str = ""
+    dba: str = ""
+    phone: str = ""
+    tax_id: str = ""
+    entity_type: str = ""
+    state_of_formation: str = ""
+    business_start_date: str = ""
+    billing_street: str = ""
+    billing_city: str = ""
+    billing_state: str = ""
+    billing_postal_code: str = ""
+
+
+class ZohoOwnerBody(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    date_of_birth: str = ""
+    ssn: str = ""
+    ownership_percentage: float = 0
+    phone: str = ""
+    email: str = ""
+    mailing_street: str = ""
+    mailing_city: str = ""
+    mailing_state: str = ""
+    mailing_postal_code: str = ""
+
+
+class ZohoLoanBody(BaseModel):
+    average_monthly_revenue: float | None = None
+    average_daily_balance: float | None = None
+
+
 class ZohoLeadUpdateBody(BaseModel):
-    business: BusinessDetailsBody
-    owners: list[OwnerDetailsBody] = Field(min_length=1, max_length=1)
-    loan: LoanDetailsBody
+    business: ZohoBusinessBody
+    owners: list[ZohoOwnerBody] = Field(min_length=1, max_length=1)
+    loan: ZohoLoanBody
 
 
 @app.get("/api/zoho/leads/{lead_id}")

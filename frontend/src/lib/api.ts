@@ -12,7 +12,10 @@ import type {
   ProcessedFile,
   Team,
   User,
+  ZohoBusinessFields,
   ZohoLeadData,
+  ZohoLoanFields,
+  ZohoOwnerFields,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -385,6 +388,16 @@ export const api = {
       return request<{ ok: boolean; data: ZohoLeadData }>(
         `/api/zoho/leads/${encodeURIComponent(leadId)}`,
       );
+    },
+    updateLead(
+      leadId: string,
+      payload: { business: ZohoBusinessFields; owners: ZohoOwnerFields[]; loan: ZohoLoanFields },
+    ) {
+      return request<{ ok: boolean; data: unknown }>(`/api/zoho/leads/${encodeURIComponent(leadId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
     },
   },
 };

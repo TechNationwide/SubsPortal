@@ -3,12 +3,7 @@
 import { FormEvent, useState } from "react";
 import { PortalShell } from "@/components/PortalShell";
 import { api } from "@/lib/api";
-import type { ZohoLeadData } from "@/lib/types";
-
-function fmt(value: string | number | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "—";
-  return String(value);
-}
+import type { ZohoBusinessFields, ZohoLeadData, ZohoLoanFields, ZohoOwnerFields } from "@/lib/types";
 
 function maskSsn(ssn: string): string {
   const digits = ssn.replace(/\D/g, "");
@@ -16,24 +11,65 @@ function maskSsn(ssn: string): string {
   return `•••-••-${digits.slice(-4)}`;
 }
 
+const emptyBusiness = (): ZohoBusinessFields => ({
+  legal_name: "",
+  dba: "",
+  phone: "",
+  tax_id: "",
+  entity_type: "",
+  state_of_formation: "",
+  business_start_date: "",
+  billing_street: "",
+  billing_city: "",
+  billing_state: "",
+  billing_postal_code: "",
+});
+
+const emptyOwner = (): ZohoOwnerFields => ({
+  first_name: "",
+  last_name: "",
+  date_of_birth: "",
+  ssn: "",
+  ownership_percentage: 0,
+  phone: "",
+  email: "",
+  mailing_street: "",
+  mailing_city: "",
+  mailing_state: "",
+  mailing_postal_code: "",
+});
+
+const emptyLoan = (): ZohoLoanFields => ({
+  average_monthly_revenue: null,
+  average_daily_balance: null,
+});
+
 export default function ZohoLookupPage() {
   const [leadId, setLeadId] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [error, setError] = useState("");
-  const [data, setData] = useState<ZohoLeadData | null>(null);
+  const [pulled, setPulled] = useState<ZohoLeadData | null>(null);
   const [showSsn, setShowSsn] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
+  const [business, setBusiness] = useState<ZohoBusinessFields>(emptyBusiness());
+  const [owner, setOwner] = useState<ZohoOwnerFields>(emptyOwner());
+  const [loan, setLoan] = useState<ZohoLoanFields>(emptyLoan());
+
+  async function onPull(e: FormEvent) {
     e.preventDefault();
     const id = leadId.trim();
     if (!id) return;
     setLoading(true);
     setError("");
-    setData(null);
+    setPulled(null);
     setShowSsn(false);
     try {
       const res = await api.zoho.getLead(id);
-      setData(res.data);
+      setPulled(res.data);
+      setBusiness(res.data.business);
+      setOwner(res.data.owners[0] ?? emptyOwner());
+      setLoan(res.data.loan);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to pull this lead.");
     } finally {
@@ -41,21 +77,66 @@ export default function ZohoLookupPage() {
     }
   }
 
-  const owner = data?.owners[0];
+  async function onPush() {
+    const id = leadId.trim();
+    if (!id) return;
+    if (
+      !window.confirm(
+        `This will overwrite the mapped fields on Zoho Lead ${id} with what's shown below. Continue?`,
+      )
+    ) {
+      return;
+    }
+    setPushing(true);
+    setError("");
+    try {
+      await api.zoho.updateLead(id, { business, owners: [owner], loan });
+      setError("");
+      window.alert("Pushed to Zoho successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to push to Zoho.");
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  function field(
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    type: "text" | "date" = "text",
+  ) {
+    return (
+      <tr>
+        <td style={{ width: 220 }}>
+          <strong>{label}</strong>
+        </td>
+        <td>
+          <input
+            type={type}
+            className="crm-search"
+            style={{ width: "100%" }}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <PortalShell
       title="Zoho Lookup"
-      subtitle="Pull a lead straight from Zoho CRM to see what's on file before starting a submission."
+      subtitle="Pull a lead from Zoho CRM, edit if needed, and push changes back — one lead at a time."
     >
       <section className="card panel config-card">
         <div className="config-card-header">
           <div>
             <h2>Pull a lead</h2>
-            <p>Read-only for now — this doesn&rsquo;t change anything in Zoho.</p>
+            <p>Enter a Lead ID to load its fields below.</p>
           </div>
         </div>
-        <form onSubmit={onSubmit} className="crm-toolbar">
+        <form onSubmit={onPull} className="crm-toolbar">
           <div className="crm-toolbar-left" style={{ flex: 1 }}>
             <input
               type="text"
@@ -80,7 +161,7 @@ export default function ZohoLookupPage() {
         )}
       </section>
 
-      {data && (
+      {pulled && (
         <>
           <section className="card panel config-card">
             <div className="config-card-header">
@@ -90,66 +171,65 @@ export default function ZohoLookupPage() {
             </div>
             <table className="crm-table">
               <tbody>
-                <tr><td style={{ width: 220 }}><strong>Legal name</strong></td><td>{fmt(data.business.legal_name)}</td></tr>
-                <tr><td><strong>DBA</strong></td><td>{fmt(data.business.dba)}</td></tr>
-                <tr><td><strong>Phone</strong></td><td>{fmt(data.business.phone)}</td></tr>
-                <tr><td><strong>Tax ID</strong></td><td>{fmt(data.business.tax_id)}</td></tr>
-                <tr><td><strong>Entity type</strong></td><td>{fmt(data.business.entity_type)}</td></tr>
-                <tr><td><strong>State of formation</strong></td><td>{fmt(data.business.state_of_formation)}</td></tr>
-                <tr><td><strong>Start date</strong></td><td>{fmt(data.business.business_start_date)}</td></tr>
-                <tr>
-                  <td><strong>Billing address</strong></td>
-                  <td>
-                    {[data.business.billing_street, data.business.billing_city, data.business.billing_state, data.business.billing_postal_code]
-                      .filter(Boolean)
-                      .join(", ") || "—"}
-                  </td>
-                </tr>
+                {field("Legal name", business.legal_name, (v) => setBusiness({ ...business, legal_name: v }))}
+                {field("DBA", business.dba, (v) => setBusiness({ ...business, dba: v }))}
+                {field("Phone", business.phone, (v) => setBusiness({ ...business, phone: v }))}
+                {field("Tax ID", business.tax_id, (v) => setBusiness({ ...business, tax_id: v }))}
+                {field("Entity type", business.entity_type, (v) => setBusiness({ ...business, entity_type: v }))}
+                {field("State of formation", business.state_of_formation, (v) => setBusiness({ ...business, state_of_formation: v }))}
+                {field("Start date", business.business_start_date, (v) => setBusiness({ ...business, business_start_date: v }), "date")}
+                {field("Billing street", business.billing_street, (v) => setBusiness({ ...business, billing_street: v }))}
+                {field("Billing city", business.billing_city, (v) => setBusiness({ ...business, billing_city: v }))}
+                {field("Billing state", business.billing_state, (v) => setBusiness({ ...business, billing_state: v }))}
+                {field("Billing ZIP", business.billing_postal_code, (v) => setBusiness({ ...business, billing_postal_code: v }))}
               </tbody>
             </table>
           </section>
 
-          {owner && (
-            <section className="card panel config-card">
-              <div className="config-card-header">
-                <div>
-                  <h2>Owner</h2>
-                </div>
+          <section className="card panel config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Owner</h2>
               </div>
-              <table className="crm-table">
-                <tbody>
-                  <tr><td style={{ width: 220 }}><strong>Name</strong></td><td>{fmt(`${owner.first_name} ${owner.last_name}`.trim())}</td></tr>
-                  <tr><td><strong>Date of birth</strong></td><td>{fmt(owner.date_of_birth)}</td></tr>
-                  <tr>
-                    <td><strong>SSN</strong></td>
-                    <td>
-                      {owner.ssn ? (
-                        <>
-                          {showSsn ? owner.ssn : maskSsn(owner.ssn)}{" "}
-                          <button type="button" className="btn btn-secondary btn-xs" onClick={() => setShowSsn((s) => !s)}>
-                            {showSsn ? "Hide" : "Show"}
-                          </button>
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                  </tr>
-                  <tr><td><strong>Ownership %</strong></td><td>{fmt(owner.ownership_percentage)}</td></tr>
-                  <tr><td><strong>Phone</strong></td><td>{fmt(owner.phone)}</td></tr>
-                  <tr><td><strong>Email</strong></td><td>{fmt(owner.email)}</td></tr>
-                  <tr>
-                    <td><strong>Mailing address</strong></td>
-                    <td>
-                      {[owner.mailing_street, owner.mailing_city, owner.mailing_state, owner.mailing_postal_code]
-                        .filter(Boolean)
-                        .join(", ") || "—"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </section>
-          )}
+            </div>
+            <table className="crm-table">
+              <tbody>
+                {field("First name", owner.first_name, (v) => setOwner({ ...owner, first_name: v }))}
+                {field("Last name", owner.last_name, (v) => setOwner({ ...owner, last_name: v }))}
+                {field("Date of birth", owner.date_of_birth, (v) => setOwner({ ...owner, date_of_birth: v }), "date")}
+                <tr>
+                  <td style={{ width: 220 }}>
+                    <strong>SSN</strong>
+                  </td>
+                  <td>
+                    {showSsn ? (
+                      <input
+                        type="text"
+                        className="crm-search"
+                        style={{ width: "100%" }}
+                        value={owner.ssn}
+                        onChange={(e) => setOwner({ ...owner, ssn: e.target.value })}
+                      />
+                    ) : (
+                      <>
+                        {owner.ssn ? maskSsn(owner.ssn) : "—"}{" "}
+                        <button type="button" className="btn btn-secondary btn-xs" onClick={() => setShowSsn(true)}>
+                          Show / edit
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+                {field("Ownership %", String(owner.ownership_percentage), (v) => setOwner({ ...owner, ownership_percentage: Number(v) || 0 }))}
+                {field("Phone", owner.phone, (v) => setOwner({ ...owner, phone: v }))}
+                {field("Email", owner.email, (v) => setOwner({ ...owner, email: v }))}
+                {field("Mailing street", owner.mailing_street, (v) => setOwner({ ...owner, mailing_street: v }))}
+                {field("Mailing city", owner.mailing_city, (v) => setOwner({ ...owner, mailing_city: v }))}
+                {field("Mailing state", owner.mailing_state, (v) => setOwner({ ...owner, mailing_state: v }))}
+                {field("Mailing ZIP", owner.mailing_postal_code, (v) => setOwner({ ...owner, mailing_postal_code: v }))}
+              </tbody>
+            </table>
+          </section>
 
           <section className="card panel config-card">
             <div className="config-card-header">
@@ -160,10 +240,30 @@ export default function ZohoLookupPage() {
             </div>
             <table className="crm-table">
               <tbody>
-                <tr><td style={{ width: 220 }}><strong>Average monthly revenue</strong></td><td>{fmt(data.loan.average_monthly_revenue)}</td></tr>
-                <tr><td><strong>Average daily balance</strong></td><td>{fmt(data.loan.average_daily_balance)}</td></tr>
+                {field(
+                  "Average monthly revenue",
+                  loan.average_monthly_revenue == null ? "" : String(loan.average_monthly_revenue),
+                  (v) => setLoan({ ...loan, average_monthly_revenue: v === "" ? null : Number(v) || 0 }),
+                )}
+                {field(
+                  "Average daily balance",
+                  loan.average_daily_balance == null ? "" : String(loan.average_daily_balance),
+                  (v) => setLoan({ ...loan, average_daily_balance: v === "" ? null : Number(v) || 0 }),
+                )}
               </tbody>
             </table>
+          </section>
+
+          <section className="card panel config-card">
+            <div className="config-card-header">
+              <div>
+                <h2>Push back to Zoho</h2>
+                <p>Overwrites the fields above on this Lead. Nothing else on the record is touched.</p>
+              </div>
+            </div>
+            <button type="button" className="btn btn-primary" disabled={pushing} onClick={onPush}>
+              {pushing ? "Pushing…" : "Push to Zoho"}
+            </button>
           </section>
         </>
       )}

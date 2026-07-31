@@ -343,7 +343,6 @@ def update_lead(
         "First_Name": owner.get("first_name", ""),
         "Last_Name": owner.get("last_name", ""),
         "SSN": owner.get("ssn", ""),
-        "of_Ownership": owner.get("ownership_percentage", 0),
         "Owner_Phone": owner.get("phone", ""),
         "Email": owner.get("email", ""),
         "Owner_Address": owner.get("mailing_street", ""),
@@ -362,6 +361,14 @@ def update_lead(
     dob = owner.get("date_of_birth")
     if dob:
         fields["Date_Of_Birth"] = _to_iso_date(dob)
+    # Zoho distinguishes "never set" (null) from an explicit 0% - and the
+    # portal's own form always sends a concrete number (0 by default), with
+    # no way to represent "leave this alone." 0% ownership is never a real
+    # value in practice, so treat it as "not provided" rather than silently
+    # overwriting a null field with an explicit zero.
+    ownership = owner.get("ownership_percentage")
+    if ownership:
+        fields["of_Ownership"] = ownership
 
     _, raw, content_type = _authed_request("PUT", f"/crm/v2/Leads/{lead_id}", body={"data": [fields]})
     try:
