@@ -72,6 +72,30 @@ export default function ApiPartnersPage() {
   const [owners, setOwners] = useState<OwnerDetails[]>([emptyOwnerDetails()]);
   const [loan, setLoan] = useState<LoanDetails>(emptyLoanDetails());
 
+  const [zohoLeadId, setZohoLeadId] = useState("");
+  const [zohoPulling, setZohoPulling] = useState(false);
+
+  const pullFromZoho = useCallback(async () => {
+    const leadId = zohoLeadId.trim();
+    if (!leadId) return;
+    setZohoPulling(true);
+    try {
+      const res = await api.zoho.getLead(leadId);
+      setBusiness((prev) => ({ ...prev, ...res.data.business }));
+      setOwners((prev) => {
+        const merged = [...prev];
+        merged[0] = { ...(merged[0] ?? emptyOwnerDetails()), ...res.data.owners[0] };
+        return merged;
+      });
+      setLoan((prev) => ({ ...prev, ...res.data.loan }));
+      setToast("Pulled from Zoho — double-check the fields below before submitting.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Failed to pull this lead from Zoho.");
+    } finally {
+      setZohoPulling(false);
+    }
+  }, [zohoLeadId]);
+
   const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
   const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
   // A set, not a single key - submitting to multiple partners at once is
@@ -882,6 +906,26 @@ export default function ApiPartnersPage() {
                 Shared across all selected partners. OnDeck supports up to 2 owners; CAN Capital uses
                 the first owner listed as the primary contact.
               </p>
+            </div>
+            <div className="crm-toolbar">
+              <div className="crm-toolbar-left" style={{ flex: 1 }}>
+                <input
+                  type="text"
+                  className="crm-search"
+                  placeholder="Zoho Lead ID — pull to fill the fields below"
+                  value={zohoLeadId}
+                  onChange={(e) => setZohoLeadId(e.target.value)}
+                  style={{ minWidth: 280 }}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={zohoPulling || !zohoLeadId.trim()}
+                onClick={pullFromZoho}
+              >
+                {zohoPulling ? "Pulling…" : "Pull from Zoho"}
+              </button>
             </div>
             <BusinessOwnerLoanForm
               business={business}
