@@ -619,7 +619,7 @@ export default function ApiPartnersPage() {
       }
     }
 
-    if (key === "channel" && !CHANNEL_ENTITY_TYPES.includes(business.entity_type.trim().toLowerCase())) {
+    if (key === "channel" && !CHANNEL_ENTITY_TYPES.includes(String(business.entity_type ?? "").trim().toLowerCase())) {
       return `Channel only supports Corporation, LLC, or Sole Proprietorship as entity type (got "${business.entity_type}").`;
     }
 
