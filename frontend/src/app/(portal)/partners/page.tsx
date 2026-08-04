@@ -580,8 +580,9 @@ export default function ApiPartnersPage() {
             ? await api.partners.ideaSendDocuments(submission.id, info.jobId, filenames, applicationFile)
             : await api.partners.canSendDocuments(submission.id, info.jobId, filenames, applicationFile);
       setSubmissions((prev) => ({ ...prev, [key]: res.data }));
+      const appNote = key !== "ondeck" && applicationFile ? " Application document included." : "";
       setToast(
-        `Documents sent to ${entry.label}.${key !== "ondeck" && applicationFile ? " Application document included." : ""}`,
+        `Documents sent to ${entry.label}: ${filenames.length} bank statement${filenames.length === 1 ? "" : "s"}.${appNote}`,
       );
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Sending documents failed.");
