@@ -192,9 +192,6 @@ export default function ApiPartnersPage() {
   // starts, letting a double-click re-fire A's request while it's still in
   // flight.
   const [busyKeys, setBusyKeys] = useState<Set<PartnerFunderKey>>(new Set());
-  // One partner action at a time — clicking Submit on several partners
-  // together spiked API RAM and showed intermittent Bad Gateway.
-  const partnerActionLockRef = useRef(false);
   const setBusy = useCallback((key: PartnerFunderKey, isBusy: boolean) => {
     setBusyKeys((prev) => {
       const next = new Set(prev);
@@ -629,22 +626,6 @@ export default function ApiPartnersPage() {
     return null;
   }
 
-  function beginPartnerAction(label: string): boolean {
-    if (partnerActionLockRef.current || busyKeys.size > 0) {
-      showToast(
-        `One partner at a time — wait for the current action to finish, then click ${label}.`,
-        "error",
-      );
-      return false;
-    }
-    partnerActionLockRef.current = true;
-    return true;
-  }
-
-  function endPartnerAction(key: PartnerFunderKey) {
-    partnerActionLockRef.current = false;
-    endPartnerAction(key);
-  }
 
   async function onSubmitPartner(key: PartnerFunderKey) {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
@@ -658,7 +639,6 @@ export default function ApiPartnersPage() {
       showToast(validationError, "error");
       return;
     }
-    if (!beginPartnerAction(entry.label)) return;
     setBusy(key, true);
     setToast("");
     try {
@@ -686,7 +666,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Submission failed.", "error");
     } finally {
-      endPartnerAction(key);
+      setBusy(key, false);
     }
   }
 
@@ -700,7 +680,6 @@ export default function ApiPartnersPage() {
       setToast("No watermarked files for this partner yet.");
       return;
     }
-    if (!beginPartnerAction(entry.label)) return;
     setBusy(key, true);
     setToast("");
     try {
@@ -718,7 +697,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Sending documents failed.");
     } finally {
-      endPartnerAction(key);
+      setBusy(key, false);
     }
   }
 
@@ -726,7 +705,6 @@ export default function ApiPartnersPage() {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
     const submission = submissions[key];
     if (!entry || !submission) return;
-    if (!beginPartnerAction(entry.label)) return;
     setBusy(key, true);
     setToast("");
     try {
@@ -739,7 +717,7 @@ export default function ApiPartnersPage() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Processing failed.");
     } finally {
-      endPartnerAction(key);
+      setBusy(key, false);
     }
   }
 
@@ -1097,7 +1075,7 @@ export default function ApiPartnersPage() {
                   configured={Boolean(partnersStatus[p.key]?.configured)}
                   submission={submissions[p.key] ?? null}
                   files={partnerFiles(p.label)}
-                  busy={busyKeys.size > 0}
+                  busy={busyKeys.has(p.key)}
                   onSubmit={() => onSubmitPartner(p.key)}
                   onSendDocuments={() => onSendDocumentsPartner(p.key)}
                   onProcess={(consent) => onProcessPartner(p.key, consent)}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import os
 import re
 import shutil
@@ -66,6 +67,21 @@ from pdf_processor import flatten_pdf
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "processed"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# Keith clicks Submit on several funders at once. Requests stay accepted in
+# parallel; this semaphore limits how many heavy partner API calls run at the
+# same time so PM2 does not kill uvicorn on a RAM spike.
+_PARTNER_SLOTS = threading.Semaphore(int(os.getenv("PARTNER_MAX_CONCURRENT", "4")))
+
+
+def partner_concurrency():
+    """FastAPI sync dependency — queues excess concurrent partner submits."""
+    _PARTNER_SLOTS.acquire()
+    try:
+        yield
+    finally:
+        _PARTNER_SLOTS.release()
+
 
 app = FastAPI(title="VAT Portal API", version="1.0.0")
 
@@ -873,7 +889,11 @@ def partners_delete_submission(submission_id: int, user=Depends(require_auth)):
 
 
 @app.post("/api/partners/ondeck/submit-application")
-def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+def ondeck_submit_application(
+    body: PartnerSubmissionCreateBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     if not ondeck_client.ondeck_configured():
         raise HTTPException(
             503, "OnDeck is not configured. Set ONDECK_USERNAME/ONDECK_PASSWORD/ONDECK_API_KEY in backend/.env."
@@ -911,7 +931,12 @@ def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(re
 
 
 @app.post("/api/partners/ondeck/{submission_id}/send-documents")
-def ondeck_send_documents(submission_id: int, body: SendDocumentsBody, user=Depends(require_auth)):
+def ondeck_send_documents(
+    submission_id: int,
+    body: SendDocumentsBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     submission = _get_owned_submission(submission_id, user)
     # Checking external_id (not status) on purpose: a failed document upload
     # sets status to "error", and gating on status alone permanently locked
@@ -950,7 +975,11 @@ def ondeck_submission_status(submission_id: int, user=Depends(require_auth)):
 
 
 @app.post("/api/partners/can/create-application")
-def can_create_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+def can_create_application(
+    body: PartnerSubmissionCreateBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     if not can_client.can_configured():
         raise HTTPException(503, "CAN Capital is not configured. Set CAN_EMAIL/CAN_PASSWORD in backend/.env.")
 
@@ -994,6 +1023,7 @@ async def can_send_documents(
     filenames: str = Form(...),
     application_document: UploadFile | None = File(None),
     user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
 ):
     submission = _get_owned_submission(submission_id, user)
     # See the matching comment in ondeck_send_documents - checking
@@ -1075,7 +1105,12 @@ async def can_send_documents(
 
 
 @app.post("/api/partners/can/{submission_id}/process-application")
-def can_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
+def can_process_application(
+    submission_id: int,
+    body: ProcessApplicationBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     submission = _get_owned_submission(submission_id, user)
     # Also allow retrying from "error" - a failed process attempt (e.g. a
     # transient network error) shouldn't need documents re-sent from
@@ -1132,6 +1167,8 @@ async def peac_submit_application(
     filenames: str = Form("[]"),
     application_document: UploadFile | None = File(None),
     user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+
 ):
     if not peac_client.peac_configured():
         raise HTTPException(
@@ -1189,6 +1226,8 @@ async def channel_submit_application(
     filenames: str = Form("[]"),
     application_document: UploadFile | None = File(None),
     user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+
 ):
     if not channel_client.channel_configured():
         raise HTTPException(503, "Channel is not configured. Set CHANNEL_API_TOKEN/CHANNEL_USER_EMAIL in backend/.env.")
@@ -1236,7 +1275,11 @@ async def channel_submit_application(
 
 
 @app.post("/api/partners/idea/create-application")
-def idea_create_application(body: PartnerSubmissionCreateBody, user=Depends(require_auth)):
+def idea_create_application(
+    body: PartnerSubmissionCreateBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     if not idea_client.idea_configured():
         raise HTTPException(503, "iDea Financial is not configured. Set IDEA_CLIENT_ID/IDEA_CLIENT_SECRET in backend/.env.")
 
@@ -1271,6 +1314,7 @@ async def idea_send_documents(
     filenames: str = Form(...),
     application_document: UploadFile | None = File(None),
     user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
 ):
     submission = _get_owned_submission(submission_id, user)
     # See the matching comment in ondeck_send_documents - checking
@@ -1310,7 +1354,12 @@ async def idea_send_documents(
 
 
 @app.post("/api/partners/idea/{submission_id}/process-application")
-def idea_process_application(submission_id: int, body: ProcessApplicationBody, user=Depends(require_auth)):
+def idea_process_application(
+    submission_id: int,
+    body: ProcessApplicationBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
     submission = _get_owned_submission(submission_id, user)
     # Also allow retrying from "error" - see the matching comment in
     # can_process_application.
