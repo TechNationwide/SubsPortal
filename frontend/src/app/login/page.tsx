@@ -33,7 +33,19 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <div className="login-split">
+      <style>{`
+        .password-field { position: relative; }
+        .password-field input { padding-right: 46px; }
+        .password-toggle {
+          position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+          background: transparent; color: var(--muted); cursor: pointer;
+        }
+        .password-toggle:hover { color: var(--text); background: rgba(15, 23, 42, 0.04); }
+        .password-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); color: var(--primary); }
+      `}</style>
+            <div className="login-split">
         <div className="login-brand-panel">
           <div className="login-brand-content">
             <h2>Multi-Brand<br />Submission Portal</h2>
