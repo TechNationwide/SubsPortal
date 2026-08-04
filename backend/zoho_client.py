@@ -263,35 +263,59 @@ def _from_iso_date(value: str | None) -> str:
     return value or ""
 
 
+def _as_str(value: Any) -> str:
+    """Zoho sometimes returns numeric IDs/SSNs/phones as numbers — coerce
+    so the portal form state always holds strings (React inputs + .trim())."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _ownership_pct(record: dict[str, Any]) -> float:
+    """Prefer spreadsheet field of_Ownership; fall back to Ownership.
+    Return 0 when unset so callers can treat 0 as 'not provided'."""
+    for key in ("of_Ownership", "Ownership"):
+        val = record.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            n = float(val)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return n
+    return 0.0
+
+
 def _lead_to_portal(record: dict[str, Any]) -> dict[str, Any]:
     business_type = record.get("Business_Type") or []
     return {
         "business": {
-            "legal_name": record.get("Company") or "",
-            "dba": record.get("DBA") or "",
-            "phone": record.get("Phone") or "",
-            "tax_id": record.get("Federal_Tax_ID") or "",
-            "entity_type": business_type[0] if business_type else "",
-            "state_of_formation": record.get("State_of_Incorporation") or "",
+            "legal_name": _as_str(record.get("Company")),
+            "dba": _as_str(record.get("DBA")),
+            "phone": _as_str(record.get("Phone")),
+            "tax_id": _as_str(record.get("Federal_Tax_ID")),
+            "entity_type": _as_str(business_type[0]) if business_type else "",
+            "state_of_formation": _as_str(record.get("State_of_Incorporation")),
             "business_start_date": _from_iso_date(record.get("Start_Date")),
-            "billing_street": record.get("Street") or "",
-            "billing_city": record.get("City") or "",
-            "billing_state": record.get("State") or "",
-            "billing_postal_code": record.get("Zip_Code") or "",
+            "billing_street": _as_str(record.get("Street")),
+            "billing_city": _as_str(record.get("City")),
+            "billing_state": _as_str(record.get("State")),
+            "billing_postal_code": _as_str(record.get("Zip_Code")),
         },
         "owners": [
             {
-                "first_name": record.get("First_Name") or "",
-                "last_name": record.get("Last_Name") or "",
+                "first_name": _as_str(record.get("First_Name")),
+                "last_name": _as_str(record.get("Last_Name")),
                 "date_of_birth": _from_iso_date(record.get("Date_Of_Birth")),
-                "ssn": record.get("SSN") or "",
-                "ownership_percentage": record.get("of_Ownership") or 0,
-                "phone": record.get("Owner_Phone") or "",
-                "email": record.get("Email") or "",
-                "mailing_street": record.get("Owner_Address") or "",
-                "mailing_city": record.get("Owner_City") or "",
-                "mailing_state": record.get("Owner_State") or "",
-                "mailing_postal_code": record.get("Owner_Zip_Code") or "",
+                "ssn": _as_str(record.get("SSN")),
+                "ownership_percentage": _ownership_pct(record),
+                "phone": _as_str(record.get("Owner_Phone")),
+                "email": _as_str(record.get("Email")),
+                "mailing_street": _as_str(record.get("Owner_Address")),
+                "mailing_city": _as_str(record.get("Owner_City")),
+                "mailing_state": _as_str(record.get("Owner_State")),
+                "mailing_postal_code": _as_str(record.get("Owner_Zip_Code")),
             }
         ],
         "loan": {

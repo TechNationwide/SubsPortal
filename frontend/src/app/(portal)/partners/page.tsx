@@ -65,6 +65,11 @@ export default function ApiPartnersPage() {
   const [applicationFile, setApplicationFile] = useState<File | null>(null);
   const [applicationFileDragOver, setApplicationFileDragOver] = useState(false);
   const [toast, setToast] = useState("");
+  const [toastTone, setToastTone] = useState<"success" | "error">("success");
+  const showToast = useCallback((message: string, tone: "success" | "error" = "success") => {
+    setToastTone(tone);
+    setToast(message);
+  }, []);
   const [aquamarkError, setAquamarkError] = useState("");
   const [errorModalOpen, setErrorModalOpen] = useState(false);
 
@@ -75,26 +80,53 @@ export default function ApiPartnersPage() {
   const [zohoLeadId, setZohoLeadId] = useState("");
   const [zohoPulling, setZohoPulling] = useState(false);
 
+  /** Skip null/empty Zoho values so a pull cannot wipe fields the broker already filled. */
+  function softMergeRecord<T extends Record<string, unknown>>(prev: T, incoming: Partial<T> | undefined): T {
+    if (!incoming) return prev;
+    const next: T = { ...prev };
+    for (const [key, value] of Object.entries(incoming)) {
+      if (value === null || value === undefined) continue;
+      if (typeof value === "string" && !value.trim()) continue;
+      // Zoho maps missing ownership to 0 — do not clobber a filled value with that sentinel.
+      if (key === "ownership_percentage" && (Number(value) === 0 || value === "")) continue;
+      (next as Record<string, unknown>)[key] = typeof value === "string" ? value : value;
+      // Always store stringy CRM scalars as strings when they look numeric-only from JSON.
+      if (
+        typeof value === "number" &&
+        key !== "ownership_percentage" &&
+        key !== "requested_amount" &&
+        key !== "desired_term_months" &&
+        key !== "average_monthly_revenue" &&
+        key !== "average_daily_balance" &&
+        key !== "monthly_cc_sales"
+      ) {
+        (next as Record<string, unknown>)[key] = String(value);
+      }
+    }
+    return next;
+  }
+
   const pullFromZoho = useCallback(async () => {
     const leadId = zohoLeadId.trim();
     if (!leadId) return;
     setZohoPulling(true);
     try {
       const res = await api.zoho.getLead(leadId);
-      setBusiness((prev) => ({ ...prev, ...res.data.business }));
+      setBusiness((prev) => softMergeRecord(prev, res.data.business as Partial<typeof prev>));
       setOwners((prev) => {
         const merged = [...prev];
-        merged[0] = { ...(merged[0] ?? emptyOwnerDetails()), ...res.data.owners[0] };
+        const base = merged[0] ?? emptyOwnerDetails();
+        merged[0] = softMergeRecord(base, res.data.owners[0] as Partial<typeof base>);
         return merged;
       });
-      setLoan((prev) => ({ ...prev, ...res.data.loan }));
-      setToast("Pulled from Zoho — double-check the fields below before submitting.");
+      setLoan((prev) => softMergeRecord(prev, res.data.loan as Partial<typeof prev>));
+      showToast("Pulled from Zoho — double-check the fields below before submitting.", "success");
     } catch (err) {
-      setToast(err instanceof Error ? err.message : "Failed to pull this lead from Zoho.");
+      showToast(err instanceof Error ? err.message : "Failed to pull this lead from Zoho.", "error");
     } finally {
       setZohoPulling(false);
     }
-  }, [zohoLeadId]);
+  }, [zohoLeadId, showToast]);
 
   const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
   const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
@@ -467,31 +499,37 @@ export default function ApiPartnersPage() {
   // live 400 from their real API rather than catching it locally, so this
   // check has to run before the request ever goes out, not after.
   function validateForPartner(key: PartnerFunderKey, label: string): string | null {
+    // Zoho JSON can deliver SSN / EIN / phones as numbers. Never call .trim()
+    // on a non-string — that threw and made Submit look completely dead.
+    const blank = (value: unknown) => !String(value ?? "").trim();
     const missing: string[] = [];
-    if (!business.legal_name.trim()) missing.push("legal business name");
-    if (!business.phone.trim()) missing.push("business phone");
-    if (!business.tax_id.trim()) missing.push("tax ID (EIN)");
-    if (!business.entity_type.trim()) missing.push("entity type");
-    if (!business.state_of_formation.trim()) missing.push("state of formation");
-    if (!business.business_start_date.trim()) missing.push("business start date");
-    if (!business.billing_street.trim()) missing.push("billing street");
-    if (!business.billing_city.trim()) missing.push("billing city");
-    if (!business.billing_state.trim()) missing.push("billing state");
-    if (!business.billing_postal_code.trim()) missing.push("billing ZIP");
+    if (blank(business.legal_name)) missing.push("legal business name");
+    if (blank(business.phone)) missing.push("business phone");
+    if (blank(business.tax_id)) missing.push("tax ID (EIN)");
+    if (blank(business.entity_type)) missing.push("entity type");
+    if (blank(business.state_of_formation)) missing.push("state of formation");
+    if (blank(business.business_start_date)) missing.push("business start date");
+    if (blank(business.billing_street)) missing.push("billing street");
+    if (blank(business.billing_city)) missing.push("billing city");
+    if (blank(business.billing_state)) missing.push("billing state");
+    if (blank(business.billing_postal_code)) missing.push("billing ZIP");
 
     owners.forEach((owner, i) => {
       const n = owners.length > 1 ? ` (owner ${i + 1})` : "";
-      if (!owner.first_name.trim()) missing.push(`owner first name${n}`);
-      if (!owner.last_name.trim()) missing.push(`owner last name${n}`);
-      if (!owner.ssn.trim()) missing.push(`owner SSN${n}`);
-      if (!owner.date_of_birth.trim()) missing.push(`owner date of birth${n}`);
-      if (!owner.phone.trim()) missing.push(`owner phone${n}`);
-      if (!owner.email.trim()) missing.push(`owner email${n}`);
-      if (!owner.mailing_street.trim()) missing.push(`owner mailing street${n}`);
-      if (!owner.mailing_city.trim()) missing.push(`owner mailing city${n}`);
-      if (!owner.mailing_state.trim()) missing.push(`owner mailing state${n}`);
-      if (!owner.mailing_postal_code.trim()) missing.push(`owner mailing ZIP${n}`);
-      if (!owner.ownership_percentage) missing.push(`owner ownership %${n}`);
+      if (blank(owner.first_name)) missing.push(`owner first name${n}`);
+      if (blank(owner.last_name)) missing.push(`owner last name${n}`);
+      if (blank(owner.ssn)) missing.push(`owner SSN${n}`);
+      if (blank(owner.date_of_birth)) missing.push(`owner date of birth${n}`);
+      if (blank(owner.phone)) missing.push(`owner phone${n}`);
+      if (blank(owner.email)) missing.push(`owner email${n}`);
+      if (blank(owner.mailing_street)) missing.push(`owner mailing street${n}`);
+      if (blank(owner.mailing_city)) missing.push(`owner mailing city${n}`);
+      if (blank(owner.mailing_state)) missing.push(`owner mailing state${n}`);
+      if (blank(owner.mailing_postal_code)) missing.push(`owner mailing ZIP${n}`);
+      const ownershipPct = Number(owner.ownership_percentage);
+      if (!Number.isFinite(ownershipPct) || ownershipPct <= 0) {
+        missing.push(`owner ownership %${n}`);
+      }
     });
 
     if (!loan.requested_amount) missing.push("requested amount");
@@ -521,12 +559,12 @@ export default function ApiPartnersPage() {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
     const payload = buildCreatePayload(key);
     if (!entry || !payload) {
-      setToast("Watermark files for this partner first.");
+      showToast("Watermark files for this partner first.", "error");
       return;
     }
     const validationError = validateForPartner(key, entry.label);
     if (validationError) {
-      setToast(validationError);
+      showToast(validationError, "error");
       return;
     }
     setBusy(key, true);
@@ -552,9 +590,9 @@ export default function ApiPartnersPage() {
         res = await api.partners.canCreate(payload);
       }
       setSubmissions((prev) => ({ ...prev, [key]: res.data }));
-      setToast(`Submitted to ${entry.label}. Reference: ${res.data.external_id}.`);
+      showToast(`Submitted to ${entry.label}. Reference: ${res.data.external_id}.`, "success");
     } catch (err) {
-      setToast(err instanceof Error ? err.message : "Submission failed.");
+      showToast(err instanceof Error ? err.message : "Submission failed.", "error");
     } finally {
       setBusy(key, false);
     }
@@ -1048,7 +1086,7 @@ export default function ApiPartnersPage() {
 
       {toast && (
         <div className="toast-container">
-          <div className="toast success">
+          <div className={`toast ${toastTone}`}>
             <span>•</span>
             <span>{toast}</span>
           </div>

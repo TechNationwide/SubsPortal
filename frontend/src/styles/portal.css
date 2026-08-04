@@ -1392,7 +1392,7 @@
         font-weight: 600;
         box-shadow: var(--shadow-lg);
         animation: toastIn 0.4s var(--ease-spring);
-        max-width: 360px;
+        max-width: 520px;
         display: flex;
         align-items: center;
         gap: 10px;
