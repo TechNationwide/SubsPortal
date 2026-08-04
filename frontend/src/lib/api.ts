@@ -173,9 +173,10 @@ export const api = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = (data as { detail?: unknown }).detail;
-      let message = "Aquamark processing failed.";
-      if (typeof detail === "string") message = detail;
-      else if (Array.isArray(detail) && detail[0]?.msg) message = detail[0].msg;
+      let message = `Aquamark processing failed (HTTP ${res.status}).`;
+      if (typeof detail === "string" && detail.trim()) message = detail;
+      else if (Array.isArray(detail) && detail[0]?.msg) message = String(detail[0].msg);
+      else if (detail && typeof detail === "object") message = JSON.stringify(detail, null, 2);
       else if ((data as { error?: string }).error) message = (data as { error: string }).error;
       throw new Error(message);
     }

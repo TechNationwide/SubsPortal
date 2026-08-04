@@ -545,7 +545,16 @@ async def process_documents(
         if not upload.filename.lower().endswith(".pdf"):
             errors.append(f"{upload.filename}: only PDF files are supported.")
             continue
-        uploaded.append((upload.filename, await upload.read()))
+        raw = await upload.read()
+        if not raw:
+            errors.append(f"{upload.filename}: file is empty.")
+            continue
+        if not raw.lstrip().startswith(b"%PDF"):
+            errors.append(
+                f"{upload.filename}: not a valid PDF (missing %PDF header)."
+            )
+            continue
+        uploaded.append((upload.filename, raw))
 
     if not uploaded:
         raise HTTPException(400, "; ".join(errors) or "No valid PDF files.")
@@ -559,6 +568,14 @@ async def process_documents(
                 return r.get("email", "")
         return ""
 
+    meta = {
+        "portal_job_id": job_id,
+        "recipients": funder_names,
+        "brand_name": brand_name,
+        "deal_name": deal_name,
+        "aquamark_user_email": user_email,
+    }
+    batch_items: list[dict[str, Any]] = []
     try:
         batch_items = process_batch(
             uploaded,
@@ -566,16 +583,34 @@ async def process_documents(
             brand_name=brand_name,
             deal_name=deal_name,
             user_email=user_email,
-            metadata={
-                "portal_job_id": job_id,
-                "recipients": funder_names,
-                "brand_name": brand_name,
-                "deal_name": deal_name,
-                "aquamark_user_email": user_email,
-            },
+            metadata=meta,
         )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, str(exc)) from exc
+    except Exception as batch_exc:  # noqa: BLE001
+        # Particular PDFs often poison a whole Aquamark batch. Fall back to
+        # one-file jobs so good statements still watermark while bad ones
+        # are reported by name (matches client: "happens on particular files").
+        if len(uploaded) <= 1:
+            raise HTTPException(502, str(batch_exc)) from batch_exc
+        print(f"[Aquamark] batch failed ({batch_exc}); retrying {len(uploaded)} file(s) individually")
+        for fname, fbytes in uploaded:
+            try:
+                batch_items.extend(
+                    process_batch(
+                        [(fname, fbytes)],
+                        funders=funder_names,
+                        brand_name=brand_name,
+                        deal_name=deal_name,
+                        user_email=user_email,
+                        metadata={**meta, "fallback_file": fname},
+                    )
+                )
+            except Exception as file_exc:  # noqa: BLE001
+                errors.append(f"{fname}: {file_exc}")
+        if not batch_items:
+            detail = str(batch_exc)
+            if errors:
+                detail = detail + "\n\nPer-file errors:\n" + "\n".join(errors)
+            raise HTTPException(502, detail) from batch_exc
 
     results: list[dict[str, Any]] = []
     flatten_enabled = os.getenv("AQUAMARK_FLATTEN", "true").lower() in ("1", "true", "yes")

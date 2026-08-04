@@ -126,6 +126,52 @@ def _format_response_body(raw: bytes, content_type: str) -> str:
         return text
 
 
+def _with_retry(label: str, fn, *, attempts: int | None = None):
+    """Retry transient Aquamark/Render cold-start failures (unreachable, 5xx, timeouts)."""
+    attempts = attempts or int(os.getenv("AQUAMARK_RETRY_ATTEMPTS", "3"))
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except RuntimeError as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            transient = any(
+                token in msg
+                for token in (
+                    "unreachable",
+                    "timed out",
+                    "timeout",
+                    "temporarily",
+                    "api 500",
+                    "api 502",
+                    "api 503",
+                    "api 504",
+                    "connection reset",
+                    "broken pipe",
+                )
+            )
+            if not transient or attempt >= attempts:
+                raise
+            wait = min(2 ** (attempt - 1), 8)
+            print(f"[Aquamark] retry {attempt}/{attempts} after {label}: {exc} (sleep {wait}s)")
+            time.sleep(wait)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _validate_pdf_bytes(name: str, data: bytes) -> None:
+    if not data:
+        raise ValueError(f"{name}: file is empty — Aquamark cannot process it.")
+    # Some PDFs have a UTF-8 BOM or leading whitespace; strip only whitespace.
+    head = data.lstrip()[:8]
+    if not head.startswith(b"%PDF"):
+        raise ValueError(
+            f"{name}: not a valid PDF (missing %PDF header). "
+            "Corrupt/encrypted/non-PDF files commonly cause 'Aquamark processing failed'."
+        )
+
+
 def _api_request(
     method: str,
     path: str,
@@ -213,7 +259,17 @@ def _submit_job(
     if wm_type in ("full", "funder_only"):
         payload["watermark_type"] = wm_type
 
-    _, raw, content_type = _api_request("POST", "/watermark-broker-funder", body=payload, user_email=email)
+    # Large multi-PDF base64 bodies + Render cold starts need a longer timeout.
+    def _do_submit():
+        return _api_request(
+            "POST",
+            "/watermark-broker-funder",
+            body=payload,
+            user_email=email,
+            timeout=int(os.getenv("AQUAMARK_SUBMIT_TIMEOUT", "180")),
+        )
+
+    _, raw, content_type = _with_retry("submit", _do_submit)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -234,11 +290,14 @@ def _poll_until_complete(job_id: str, user_email: str) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
 
     while time.monotonic() < deadline:
-        _, raw, content_type = _api_request(
-            "GET",
-            f"/job-status/{job_id}",
-            timeout=30,
-            user_email=user_email,
+        _, raw, content_type = _with_retry(
+            "job-status",
+            lambda: _api_request(
+                "GET",
+                f"/job-status/{job_id}",
+                timeout=30,
+                user_email=user_email,
+            ),
         )
         try:
             status = json.loads(raw)
@@ -260,12 +319,15 @@ def _poll_until_complete(job_id: str, user_email: str) -> dict[str, Any]:
 
 
 def _download_zip(job_id: str, user_email: str) -> bytes:
-    _, data, content_type = _api_request(
-        "GET",
-        f"/download/{job_id}",
-        accept="application/zip, application/octet-stream, */*",
-        timeout=300,
-        user_email=user_email,
+    _, data, content_type = _with_retry(
+        "download",
+        lambda: _api_request(
+            "GET",
+            f"/download/{job_id}",
+            accept="application/zip, application/octet-stream, */*",
+            timeout=300,
+            user_email=user_email,
+        ),
     )
     if not data.startswith(b"PK") and "zip" not in content_type.lower():
         raise RuntimeError(
@@ -319,6 +381,8 @@ def process_batch(
         **(metadata or {}),
     }
     attributed = _normalize_funder_names(funders)
+    for name, data in files:
+        _validate_pdf_bytes(name, data)
     job_id = _submit_job(files, attributed, meta, user_email)
     _poll_until_complete(job_id, user_email)
     zip_bytes = _download_zip(job_id, user_email)

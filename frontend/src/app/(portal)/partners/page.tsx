@@ -79,6 +79,7 @@ export default function ApiPartnersPage() {
 
   const [zohoLeadId, setZohoLeadId] = useState("");
   const [zohoPulling, setZohoPulling] = useState(false);
+  const [zohoPushing, setZohoPushing] = useState(false);
 
   /** Skip null/empty Zoho values so a pull cannot wipe fields the broker already filled. */
   function softMergeRecord<T extends Record<string, unknown>>(prev: T, incoming: Partial<T> | undefined): T {
@@ -127,6 +128,61 @@ export default function ApiPartnersPage() {
       setZohoPulling(false);
     }
   }, [zohoLeadId, showToast]);
+
+  const pushToZoho = useCallback(async () => {
+    const leadId = zohoLeadId.trim();
+    if (!leadId) return;
+    if (
+      !window.confirm(
+        `This will overwrite the mapped fields on Zoho Lead ${leadId} with the business/owner/loan values currently on this form. Continue?`,
+      )
+    ) {
+      return;
+    }
+    setZohoPushing(true);
+    try {
+      const owner = owners[0] ?? emptyOwnerDetails();
+      await api.zoho.updateLead(leadId, {
+        business: {
+          legal_name: String(business.legal_name ?? ""),
+          dba: String(business.dba ?? ""),
+          phone: String(business.phone ?? ""),
+          tax_id: String(business.tax_id ?? ""),
+          entity_type: String(business.entity_type ?? ""),
+          state_of_formation: String(business.state_of_formation ?? ""),
+          business_start_date: String(business.business_start_date ?? ""),
+          billing_street: String(business.billing_street ?? ""),
+          billing_city: String(business.billing_city ?? ""),
+          billing_state: String(business.billing_state ?? ""),
+          billing_postal_code: String(business.billing_postal_code ?? ""),
+        },
+        owners: [
+          {
+            first_name: String(owner.first_name ?? ""),
+            last_name: String(owner.last_name ?? ""),
+            date_of_birth: String(owner.date_of_birth ?? ""),
+            ssn: String(owner.ssn ?? ""),
+            ownership_percentage: Number(owner.ownership_percentage) || 0,
+            phone: String(owner.phone ?? ""),
+            email: String(owner.email ?? ""),
+            mailing_street: String(owner.mailing_street ?? ""),
+            mailing_city: String(owner.mailing_city ?? ""),
+            mailing_state: String(owner.mailing_state ?? ""),
+            mailing_postal_code: String(owner.mailing_postal_code ?? ""),
+          },
+        ],
+        loan: {
+          average_monthly_revenue: loan.average_monthly_revenue,
+          average_daily_balance: loan.average_daily_balance,
+        },
+      });
+      showToast("Pushed to Zoho successfully.", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to push to Zoho.", "error");
+    } finally {
+      setZohoPushing(false);
+    }
+  }, [zohoLeadId, business, owners, loan, showToast]);
 
   const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
   const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
@@ -334,6 +390,7 @@ export default function ApiPartnersPage() {
 
       const newJobInfo: Partial<Record<PartnerFunderKey, PartnerJobInfo>> = {};
       let allFiles: ProcessedFile[] = [];
+      const aquamarkWarnings: string[] = [];
 
       for (const { brand, partners } of groups.values()) {
         const form = new FormData();
@@ -346,6 +403,9 @@ export default function ApiPartnersPage() {
         const res = await api.processAquamark(form);
         jobIdsRef.current.add(res.job_id);
         allFiles = allFiles.concat(res.files);
+        if (res.errors?.length) {
+          aquamarkWarnings.push(...res.errors);
+        }
         for (const p of partners) {
           newJobInfo[p.key] = { jobId: res.job_id, brandName: brand.name };
         }
@@ -353,16 +413,27 @@ export default function ApiPartnersPage() {
 
       setResults(allFiles);
       setPartnerJobInfo(newJobInfo);
-      setToast(
-        `${allFiles.length} file(s) watermarked and flattened (${files.length} PDF × ${selectedPartners.length} partner${selectedPartners.length === 1 ? "" : "s"} across ${groups.size} brand${groups.size === 1 ? "" : "s"}).`,
-      );
+      if (aquamarkWarnings.length) {
+        showToast(
+          `Watermarked ${allFiles.length} file(s), but some PDFs failed: ${aquamarkWarnings.join(" | ")}`,
+          "error",
+        );
+        setAquamarkError(aquamarkWarnings.join("\n\n"));
+        setErrorModalOpen(true);
+      } else {
+        showToast(
+          `${allFiles.length} file(s) watermarked and flattened (${files.length} PDF × ${selectedPartners.length} partner${selectedPartners.length === 1 ? "" : "s"} across ${groups.size} brand${groups.size === 1 ? "" : "s"}).`,
+          "success",
+        );
+      }
     } catch (err) {
       await cleanupJobs();
       setResults([]);
       setPartnerJobInfo({});
-      const message = err instanceof Error ? err.message : "Processing failed.";
+      const message = err instanceof Error ? err.message : "Aquamark processing failed.";
       setAquamarkError(message);
       setErrorModalOpen(true);
+      showToast(message.split("\n")[0] || "Aquamark processing failed.", "error");
     } finally {
       setProcessing(false);
     }
@@ -960,10 +1031,19 @@ export default function ApiPartnersPage() {
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={zohoPulling || !zohoLeadId.trim()}
+                disabled={zohoPulling || zohoPushing || !zohoLeadId.trim()}
                 onClick={pullFromZoho}
               >
                 {zohoPulling ? "Pulling…" : "Pull from Zoho"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={zohoPulling || zohoPushing || !zohoLeadId.trim()}
+                onClick={pushToZoho}
+                title="Overwrite mapped fields on this Zoho Lead with the form below"
+              >
+                {zohoPushing ? "Pushing…" : "Push to Zoho"}
               </button>
             </div>
             <BusinessOwnerLoanForm
