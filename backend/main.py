@@ -950,33 +950,66 @@ async def can_send_documents(
     if not filename_list:
         raise HTTPException(400, "At least one filename is required.")
 
-    # CAN's uploaddocs endpoint is one document per request (per CLSI docs),
-    # unlike OnDeck's /documents which accepts a batch — only the first
-    # selected bank-statement file is sent here.
-    bs_filename = Path(filename_list[0]).name
-    bs_data = _read_processed_file(job_id, bs_filename)
+    # CAN's uploaddocs endpoint accepts one document per request (CLSI docs).
+    # Upload EVERY bank-statement file the portal watermarked for this partner
+    # (at least one required; brokers typically send 3-4 months), then the
+    # optional Application PDF. Mirrors the working Zoho Deluge flow:
+    # createapplication -> uploaddocs (each file) -> processapplication.
+    upload_results: list[dict] = []
     try:
-        result = can_client.upload_document(
-            submission["external_id"], bs_filename, bs_data, document_type="Bank Statements"
-        )
-        # The application document (if provided) is sent as-is — no
-        # watermark/flatten/compress — as its own "Application" document
-        # type, separate from the bank statements upload above.
+        for raw_name in filename_list:
+            bs_filename = Path(raw_name).name
+            bs_data = _read_processed_file(job_id, bs_filename)
+            result = can_client.upload_document(
+                submission["external_id"], bs_filename, bs_data, document_type="Bank Statements"
+            )
+            upload_results.append(
+                {"filename": bs_filename, "document_type": "Bank Statements", **result}
+            )
+            _log_event(
+                submission_id,
+                "can_send_bank_statement",
+                True,
+                result.get("status"),
+                json.dumps({"filename": bs_filename, **result}),
+            )
+
+        # Application document (if provided) is sent as-is - no
+        # watermark/flatten/compress - as its own "Application" document
+        # type, separate from the bank statements above.
         if application_document is not None and application_document.filename:
             app_filename = Path(application_document.filename).name
             app_bytes = await application_document.read()
             app_result = can_client.upload_document(
                 submission["external_id"], app_filename, app_bytes, document_type="Application"
             )
+            upload_results.append(
+                {"filename": app_filename, "document_type": "Application", **app_result}
+            )
             _log_event(
-                submission_id, "can_send_application_document", True, app_result.get("status"), json.dumps(app_result)
+                submission_id,
+                "can_send_application_document",
+                True,
+                app_result.get("status"),
+                json.dumps({"filename": app_filename, **app_result}),
             )
     except (ValueError, RuntimeError) as exc:
         _log_event(submission_id, "can_send_documents", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
         raise HTTPException(502, str(exc)) from exc
 
-    _log_event(submission_id, "can_send_documents", True, result.get("status"), json.dumps(result))
+    _log_event(
+        submission_id,
+        "can_send_documents",
+        True,
+        200,
+        json.dumps(
+            {
+                "bank_statement_count": len(filename_list),
+                "uploaded": upload_results,
+            }
+        ),
+    )
     updated = update_partner_submission(submission_id, status="docs_sent")
     return {"ok": True, "data": updated}
 
