@@ -193,11 +193,19 @@ def _address(street: str, city: str, state: str, postal_code: str) -> dict[str, 
     }
 
 
+def _clean_phone10(value: Any) -> str:
+    """Strip to digits; drop leading NANP country code 1 (matches Zoho Dev2)."""
+    digits = re.sub(r"[^0-9]", "", str(value or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits[:10]
+
+
 def _build_business(business: dict[str, Any], loan_purpose: str) -> dict[str, Any]:
     return {
         "name": business["legal_name"][:120],
         "doingBusinessAs": (business.get("dba") or "")[:225],
-        "phone": re.sub(r"[^0-9]", "", business.get("phone", ""))[:10],
+        "phone": _clean_phone10(business.get("phone", "")),
         "taxID": re.sub(r"[^0-9]", "", business.get("tax_id", ""))[:9],
         "legalEntity": _ENTITY_TYPE_MAP.get((business.get("entity_type") or "").strip().lower(), "UNKNOWN"),
         "businessInceptionDate": business.get("business_start_date", ""),
@@ -214,7 +222,7 @@ def _build_business(business: dict[str, Any], loan_purpose: str) -> dict[str, An
 
 def _build_owner(owner: dict[str, Any]) -> dict[str, Any]:
     name = f"{owner['first_name']} {owner['last_name']}".strip()
-    phone = re.sub(r"[^0-9]", "", owner.get("phone", ""))[:10]
+    phone = _clean_phone10(owner.get("phone", ""))
     return {
         "name": name,
         "email": (owner.get("email") or "")[:80],
