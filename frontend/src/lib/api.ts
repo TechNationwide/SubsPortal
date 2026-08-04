@@ -33,10 +33,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (data as { detail?: unknown }).detail;
-    let message = res.statusText;
-    if (typeof detail === "string") message = detail;
-    else if (Array.isArray(detail) && detail[0]?.msg) message = detail[0].msg;
+    let message = res.statusText || `Request failed (HTTP ${res.status})`;
+    if (typeof detail === "string" && detail.trim()) message = detail;
+    else if (Array.isArray(detail) && detail[0]?.msg) message = String(detail[0].msg);
+    else if (detail && typeof detail === "object") message = JSON.stringify(detail);
     else if ((data as { error?: string }).error) message = (data as { error: string }).error;
+    // nginx returns HTML 502 with empty JSON when the API process was killed
+    // mid-request (memory restart) — give Keith something actionable.
+    if ((!detail || detail === "") && (res.status === 502 || /bad gateway/i.test(message))) {
+      message =
+        "Bad Gateway — the portal API restarted mid-request (usually heavy PDF processing). Wait a few seconds and try Submit again.";
+    }
     throw new Error(message);
   }
   return data as T;

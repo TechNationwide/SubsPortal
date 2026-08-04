@@ -24,6 +24,8 @@ from ever making a real call before the client is ready to test.
 
 from __future__ import annotations
 
+import re
+
 import base64
 import json
 import os
@@ -117,21 +119,37 @@ def _request(method: str, path: str, *, body: dict[str, Any], timeout: int = 120
         raise RuntimeError(f"PEAC API unreachable ({method} {path}): {exc}") from exc
 
 
+def _digits(value: Any, max_len: int | None = None) -> str:
+    """PEAC rejects formatted phones/EINs (spaces, dashes, +1). Digits only."""
+    out = re.sub(r"[^0-9]", "", str(value or ""))
+    if max_len is not None:
+        out = out[:max_len]
+    return out
+
+
+def _clean_phone10(value: Any) -> str:
+    digits = _digits(value)
+    # Strip leading country code 1 when present (11-digit NANP).
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits[:10]
+
+
 def _build_business_details(business: dict[str, Any], owner: dict[str, Any]) -> dict[str, Any]:
     entity_type = _ENTITY_TYPE_MAP.get((business.get("entity_type") or "").strip().lower(), business.get("entity_type") or "")
     return {
         "Legal Business Name": business.get("legal_name", ""),
-        "Business Tax ID": business.get("tax_id", ""),
+        "Business Tax ID": _digits(business.get("tax_id", ""), 9),
         "Business Type": entity_type,
         "Business Address Line 1": business.get("billing_street", ""),
         "Business Address Line 2": "",
         "City": business.get("billing_city", ""),
         "State": business.get("billing_state", "CA"),
-        "Zipcode": business.get("billing_postal_code", ""),
-        "Business Phone": business.get("phone", ""),
+        "Zipcode": _digits(business.get("billing_postal_code", ""), 5) or business.get("billing_postal_code", ""),
+        "Business Phone": _clean_phone10(business.get("phone", "")),
         "Business Email": owner.get("email", ""),
         "Contact Name": f"{owner.get('first_name', '')} {owner.get('last_name', '')}".strip(),
-        "Contact Phone": owner.get("phone", ""),
+        "Contact Phone": _clean_phone10(owner.get("phone", "")),
         "Phone Type": "Mobile",
     }
 
@@ -159,11 +177,11 @@ def _build_owner_details(owner: dict[str, Any]) -> dict[str, Any]:
         "Home Address Line 1": owner.get("mailing_street", ""),
         "City": owner.get("mailing_city", ""),
         "State": owner.get("mailing_state", ""),
-        "Zipcode": owner.get("mailing_postal_code", ""),
+        "Zipcode": _digits(owner.get("mailing_postal_code", ""), 5) or owner.get("mailing_postal_code", ""),
         "Date of Birth": owner.get("date_of_birth", ""),
-        "Social Security Number": owner.get("ssn", ""),
+        "Social Security Number": _digits(owner.get("ssn", ""), 9),
         "Business Owner Email": owner.get("email", ""),
-        "Business Owner Phone": owner.get("phone", ""),
+        "Business Owner Phone": _clean_phone10(owner.get("phone", "")),
     }
 
 

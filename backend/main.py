@@ -70,6 +70,31 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="VAT Portal API", version="1.0.0")
 
 
+def _partner_error(exc: Exception) -> HTTPException:
+    """Funder validation failures are client-fixable (400). True upstream
+    outages stay 502. Avoid a bare 'Bad Gateway' toast when the funder
+    clearly rejected EIN/phone/etc."""
+    msg = str(exc)
+    low = msg.lower()
+    validation_tokens = (
+        "must be",
+        "should be",
+        "max length",
+        "invalid",
+        "required",
+        "not a valid",
+        "tax id",
+        "taxid",
+        "phone",
+        " api 400",
+        '"success": false',
+        '"status": "false"',
+    )
+    if any(token in low for token in validation_tokens):
+        return HTTPException(400, msg)
+    return HTTPException(502, msg)
+
+
 def require_auth(authorization: str = Header(default="")) -> dict[str, Any]:
     token = (
         authorization[7:].strip()
@@ -878,7 +903,7 @@ def ondeck_submit_application(body: PartnerSubmissionCreateBody, user=Depends(re
     except RuntimeError as exc:
         _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))
         update_partner_submission(submission["id"], status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission["id"], "ondeck_submit_application", True, 201, f"businessID={result['business_id']}")
     updated = update_partner_submission(submission["id"], status="submitted", external_id=result["business_id"])
@@ -906,7 +931,7 @@ def ondeck_send_documents(submission_id: int, body: SendDocumentsBody, user=Depe
     except (ValueError, RuntimeError) as exc:
         _log_event(submission_id, "ondeck_send_documents", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission_id, "ondeck_send_documents", True, 200, json.dumps(result))
     updated = update_partner_submission(submission_id, status="docs_sent")
@@ -921,7 +946,7 @@ def ondeck_submission_status(submission_id: int, user=Depends(require_auth)):
     try:
         return {"ok": True, "data": ondeck_client.get_status(submission["external_id"])}
     except RuntimeError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
 
 @app.post("/api/partners/can/create-application")
@@ -953,7 +978,7 @@ def can_create_application(body: PartnerSubmissionCreateBody, user=Depends(requi
     except RuntimeError as exc:
         _log_event(submission["id"], "can_create_application", False, None, str(exc))
         update_partner_submission(submission["id"], status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission["id"], "can_create_application", True, 200, f"application={result['application_name']}")
     updated = update_partner_submission(
@@ -1031,7 +1056,7 @@ async def can_send_documents(
     except (ValueError, RuntimeError) as exc:
         _log_event(submission_id, "can_send_documents", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(
         submission_id,
@@ -1080,7 +1105,7 @@ def can_submission_status(submission_id: int, user=Depends(require_auth)):
     try:
         return {"ok": True, "data": can_client.get_application_status(submission["external_id"])}
     except RuntimeError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
 
 def _parse_partner_payload(payload: str) -> PartnerSubmissionCreateBody:
@@ -1232,7 +1257,7 @@ def idea_create_application(body: PartnerSubmissionCreateBody, user=Depends(requ
     except RuntimeError as exc:
         _log_event(submission["id"], "idea_create_application", False, None, str(exc))
         update_partner_submission(submission["id"], status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission["id"], "idea_create_application", True, 200, f"application_id={result['application_id']}")
     updated = update_partner_submission(submission["id"], status="submitted", external_id=result["application_id"])
@@ -1277,7 +1302,7 @@ async def idea_send_documents(
     except (ValueError, RuntimeError) as exc:
         _log_event(submission_id, "idea_send_documents", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission_id, "idea_send_documents", True, 200, "uploaded")
     updated = update_partner_submission(submission_id, status="docs_sent")
@@ -1301,7 +1326,7 @@ def idea_process_application(submission_id: int, body: ProcessApplicationBody, u
     except RuntimeError as exc:
         _log_event(submission_id, "idea_process_application", False, None, str(exc))
         update_partner_submission(submission_id, status="error", last_error=str(exc))
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
     _log_event(submission_id, "idea_process_application", True, 200, json.dumps(result))
     updated = update_partner_submission(submission_id, status="processed")
@@ -1316,7 +1341,7 @@ def idea_submission_status(submission_id: int, user=Depends(require_auth)):
     try:
         return {"ok": True, "data": idea_client.get_status(submission["external_id"])}
     except RuntimeError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
 
 class ZohoBusinessBody(BaseModel):
@@ -1370,7 +1395,7 @@ def zoho_get_lead(lead_id: str, _user=Depends(require_auth)):
     try:
         return {"ok": True, "data": zoho_client.get_lead(lead_id)}
     except RuntimeError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc
 
 
 @app.put("/api/zoho/leads/{lead_id}")
@@ -1386,4 +1411,4 @@ def zoho_update_lead(lead_id: str, body: ZohoLeadUpdateBody, _user=Depends(requi
         )
         return {"ok": True, "data": result}
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(502, str(exc)) from exc
+        raise _partner_error(exc) from exc

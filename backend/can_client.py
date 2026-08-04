@@ -19,6 +19,8 @@ module from ever making a real call before the client is ready to test.
 
 from __future__ import annotations
 
+import re
+
 import json
 import os
 import time
@@ -161,6 +163,21 @@ def _authed_request(
         return _raw_request(method, url, headers=headers, data=data)
 
 
+def _digits(value: Any, max_len: int | None = None) -> str:
+    out = re.sub(r"[^0-9]", "", str(value or ""))
+    if max_len is not None:
+        out = out[:max_len]
+    return out
+
+
+def _clean_phone(value: Any) -> str:
+    """Match Zoho Deluge: strip +1 / dashes / spaces; 10-digit NANP."""
+    digits = _digits(value)
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits[:10]
+
+
 def create_application(
     business: dict[str, Any],
     owner: dict[str, Any],
@@ -181,9 +198,9 @@ def create_application(
         },
         "accountDetails": {
             "name": business["legal_name"],
-            "phone": business.get("phone", ""),
+            "phone": _clean_phone(business.get("phone", "")),
             "industry": business.get("industry_naics_code") or "Other",
-            "taxId": business.get("tax_id", ""),
+            "taxId": _digits(business.get("tax_id", ""), 9),
             "dba": business.get("dba") or business["legal_name"],
             "businessStructureName": business.get("entity_type", ""),
             "stateOfFormation": business.get("state_of_formation", ""),
@@ -201,9 +218,9 @@ def create_application(
                 "firstName": owner["first_name"],
                 "lastName": owner["last_name"],
                 "email": owner.get("email", ""),
-                "phone": owner.get("phone", ""),
+                "phone": _clean_phone(owner.get("phone", "")),
                 "birthDate": owner.get("date_of_birth", ""),
-                "socialSecurityNumber": owner.get("ssn", ""),
+                "socialSecurityNumber": _digits(owner.get("ssn", ""), 9),
                 "mailingStreet": owner.get("mailing_street", ""),
                 "mailingBuildingNumber": "",
                 "mailingCity": owner.get("mailing_city", ""),

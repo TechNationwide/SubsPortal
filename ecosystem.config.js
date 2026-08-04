@@ -11,7 +11,7 @@ module.exports = {
       cwd: path.join(root, "backend"),
       interpreter: "none",
       watch: false,
-      max_memory_restart: "500M",
+      max_memory_restart: "900M",
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       error_file: path.join(root, "logs/api-error.log"),
       out_file: path.join(root, "logs/api-out.log"),
