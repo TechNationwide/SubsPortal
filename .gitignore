@@ -26,3 +26,8 @@ Thumbs.db
 # Secrets — never commit SSH keys
 *.pem
 *.key
+
+# Local hotfix backups — never commit
+*.bak
+*.bak-*
+*.bak_*
