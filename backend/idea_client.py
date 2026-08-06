@@ -76,6 +76,17 @@ def _format_response_body(raw: bytes, content_type: str) -> str:
         return formatted
     except (json.JSONDecodeError, UnicodeDecodeError):
         text = raw.decode(errors="replace")
+        # iDea sometimes returns IIS/Cloudflare HTML 500 pages — don't dump
+        # the whole HTML into the portal toast.
+        lowered = text.lower()
+        if "<html" in lowered or "<!doctype" in lowered:
+            if "500" in text or "internal server error" in lowered:
+                return (
+                    "iDea returned an Internal Server Error (500). "
+                    "Their API rejected or failed this create request. "
+                    "We cleaned phone/EIN/SSN to match Zoho; please retry Submit."
+                )
+            return "iDea returned an HTML error page instead of JSON."
         if len(text) > 2000:
             return text[:2000] + "\n... (truncated)"
         return text
@@ -166,6 +177,42 @@ def _get_token(*, force_refresh: bool = False) -> str:
     return token
 
 
+def _digits(value: Any, max_len: int | None = None) -> str:
+    """Strip to digits only (matches Zoho Deluge replaceAll dashes/spaces)."""
+    out = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if max_len is not None:
+        out = out[:max_len]
+    return out
+
+
+def _clean_phone10(value: Any) -> str:
+    """Match Zoho: strip +1 / punctuation; keep 10-digit NANP."""
+    digits = _digits(value)
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits[:10]
+
+
+def _as_number(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _map_entity_type(raw: Any) -> str:
+    """Map portal/Zoho entity labels to iDea kebab-case enums.
+    Zoho create hardcodes limited-liability-company; we map known values
+    and fall back to that same confirmed enum instead of inventing strings
+    that can make iDea's API throw an opaque 500."""
+    key = (raw or "").strip().lower()
+    if key in _ENTITY_TYPE_MAP:
+        return _ENTITY_TYPE_MAP[key]
+    if key in ("limited-liability-company", "corporation", "sole-proprietorship", "partnership"):
+        return key
+    return "limited-liability-company"
+
+
 def _authed_request(method: str, path: str, *, body: bytes | None, content_type: str) -> tuple[int, bytes, str]:
     url = f"{_api_base()}{path}"
     token = _get_token()
@@ -184,10 +231,9 @@ def _authed_request(method: str, path: str, *, body: bytes | None, content_type:
 
 def create_application(business: dict[str, Any], owners: list[dict[str, Any]], loan: dict[str, Any]) -> dict[str, Any]:
     owner = owners[0] if owners else {}
-    entity_type = _ENTITY_TYPE_MAP.get(
-        (business.get("entity_type") or "").strip().lower(),
-        (business.get("entity_type") or "corporation").strip().lower().replace(" ", "-"),
-    )
+    entity_type = _map_entity_type(business.get("entity_type"))
+    clean_phone = _clean_phone10(business.get("phone") or owner.get("phone", ""))
+    clean_owner_phone = _clean_phone10(owner.get("phone") or business.get("phone", ""))
 
     business_map = {
         "name": business.get("legal_name", ""),
@@ -199,13 +245,13 @@ def create_application(business: dict[str, Any], owners: list[dict[str, Any]], l
             "address2": None,
             "city": business.get("billing_city", ""),
             "state": business.get("billing_state", ""),
-            "zip": business.get("billing_postal_code", ""),
+            "zip": _digits(business.get("billing_postal_code", ""), 5),
         },
-        "ein": business.get("tax_id", ""),
-        "phone": business.get("phone", ""),
-        "naics": business.get("industry_naics_code") or "541511",
+        "ein": _digits(business.get("tax_id", ""), 9),
+        "phone": clean_phone,
+        "naics": _digits(business.get("industry_naics_code") or "541511", 6) or "541511",
         "timeInBusiness": "one-two-years",
-        "monthlySales": loan.get("average_monthly_revenue") or 1,
+        "monthlySales": _as_number(loan.get("average_monthly_revenue"), 1.0) or 1.0,
     }
     owner_map = {
         "firstName": owner.get("first_name", ""),
@@ -216,13 +262,13 @@ def create_application(business: dict[str, Any], owners: list[dict[str, Any]], l
             "address2": None,
             "city": owner.get("mailing_city", ""),
             "state": owner.get("mailing_state", ""),
-            "zip": owner.get("mailing_postal_code", ""),
+            "zip": _digits(owner.get("mailing_postal_code", ""), 5),
         },
-        "dateOfBirth": owner.get("date_of_birth") or "1985-01-01",
-        "homePhone": owner.get("phone", ""),
-        "mobilePhone": owner.get("phone", ""),
-        "ssn": owner.get("ssn", ""),
-        "fico": 700,
+        "dateOfBirth": (owner.get("date_of_birth") or "1985-01-01")[:10],
+        "homePhone": clean_owner_phone,
+        "mobilePhone": clean_owner_phone,
+        "ssn": _digits(owner.get("ssn", ""), 9),
+        "fico": int(_as_number(owner.get("fico"), 700) or 700),
         # iDea rejects this as "not valid" when sent as a JSON float
         # (e.g. 100.0) - confirmed against a real submission. Their schema
         # almost certainly binds this to a plain integer, unlike
@@ -233,7 +279,7 @@ def create_application(business: dict[str, Any], owners: list[dict[str, Any]], l
         "agentId": int(os.getenv("IDEA_AGENT_ID") or 0),
         "business": business_map,
         "owners": [owner_map],
-        "requestedAmount": loan.get("requested_amount") or 25000.00,
+        "requestedAmount": _as_number(loan.get("requested_amount"), 25000.0) or 25000.0,
     }
 
     _, raw, content_type = _authed_request(
