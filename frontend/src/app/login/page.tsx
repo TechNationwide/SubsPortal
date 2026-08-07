@@ -9,10 +9,12 @@ export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setLoading(true);
     const form = new FormData(e.target as HTMLFormElement);
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
@@ -28,6 +30,7 @@ export default function LoginPage() {
       router.push(res.user.role === "admin" ? "/teams" : "/submit");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
+      setLoading(false);
     }
   }
 
@@ -42,13 +45,36 @@ export default function LoginPage() {
           width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
           background: transparent; color: var(--muted); cursor: pointer;
         }
-        .password-toggle:hover { color: var(--text); background: rgba(15, 23, 42, 0.04); }
-        .password-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18); color: var(--primary); }
+        .password-toggle:hover { color: var(--text); background: rgba(12, 21, 32, 0.04); }
+        .password-toggle:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(196, 163, 106, 0.28); color: var(--primary); }
       `}</style>
-            <div className="login-split">
+      <div className="login-split">
         <div className="login-brand-panel">
           <div className="login-brand-content">
-            <h2>Multi-Brand<br />Submission Portal</h2>
+            <p className="login-brand-mark">VAT</p>
+            <div className="login-gold-rule" aria-hidden="true" />
+            <h2>
+              Submission
+              <br />
+              Portal
+            </h2>
+            <p className="tagline">A calm, private workspace for multi-brand deal submission.</p>
+          </div>
+          <div className="login-features">
+            <div className="login-feature">
+              <div className="login-feature-icon">◆</div>
+              <div>
+                <strong>Refined workflow</strong>
+                <span>Submit, watermark, and route deals with less friction.</span>
+              </div>
+            </div>
+            <div className="login-feature">
+              <div className="login-feature-icon">◇</div>
+              <div>
+                <strong>Partner ready</strong>
+                <span>API Partners and Zoho stay one click away.</span>
+              </div>
+            </div>
           </div>
         </div>
         <div className="login-card">
@@ -95,9 +121,14 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
-            {error && <p style={{ color: "var(--danger)", fontSize: 13 }}>{error}</p>}
-            <button type="submit" className="btn btn-primary btn-login" style={{ width: "100%" }}>
-              Sign In
+            {error && <p className="login-error">{error}</p>}
+            <button
+              type="submit"
+              className={`btn btn-primary btn-login${loading ? " is-loading" : ""}`}
+              style={{ width: "100%" }}
+              disabled={loading}
+            >
+              <span className="btn-login-label">{loading ? "Signing in…" : "Sign In"}</span>
             </button>
           </form>
         </div>

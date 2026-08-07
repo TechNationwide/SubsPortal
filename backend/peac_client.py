@@ -24,16 +24,26 @@ from ever making a real call before the client is ready to test.
 
 from __future__ import annotations
 
-import re
-
 import base64
+import http.client
 import json
 import os
+import re
+import ssl
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import urlparse
+
+from compressor import CompressionPreset, compress_pdf
 
 DEFAULT_BASE = "https://devportal.marlincapitalsolutions.com:8077"
+# PEAC takes all docs as inline base64 in one JSON POST. Payloads north of
+# ~15-20MB regularly get the connection dropped mid-write (Errno 32 Broken
+# pipe). Compress anything over this threshold before encoding.
+_COMPRESS_IF_LARGER_THAN = 1_500_000  # 1.5 MB
+_RETRY_ATTEMPTS = int(os.getenv("PEAC_RETRY_ATTEMPTS", "3"))
+_MAX_PAYLOAD_BYTES = int(os.getenv("PEAC_MAX_PAYLOAD_BYTES", str(18 * 1024 * 1024)))
 
 _ENTITY_TYPE_MAP = {
     "sole proprietorship": "Sole proprietorship",
@@ -82,41 +92,139 @@ def _auth_headers() -> dict[str, str]:
     return {"Authorization": f"Basic {token}", "x-api-key": api_key}
 
 
-def _request(method: str, path: str, *, body: dict[str, Any], timeout: int = 120) -> tuple[int, bytes, str]:
+def _is_transient(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    tokens = (
+        "broken pipe",
+        "connection reset",
+        "connection aborted",
+        "timed out",
+        "timeout",
+        "temporarily",
+        "unreachable",
+        "errno 32",
+        "errno 104",
+        "errno 54",
+        "remote end closed",
+        "incomplete read",
+    )
+    return any(t in msg for t in tokens)
+
+
+def _request_once(method: str, path: str, *, data: bytes, timeout: int) -> tuple[int, bytes, str]:
+    """Single POST attempt via http.client (more reliable for large bodies than urllib)."""
+    url = f"{_base_url()}{path}"
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeError(f"PEAC API URL must be https: {url}")
+
+    headers = {
+        **_auth_headers(),
+        "Content-Type": "application/json",
+        "Content-Length": str(len(data)),
+        "Connection": "close",
+        "Accept": "application/json",
+    }
+    port = parsed.port or 443
+    ctx = ssl.create_default_context()
+    conn = http.client.HTTPSConnection(parsed.hostname, port, timeout=timeout, context=ctx)
+    try:
+        conn.request(method, parsed.path or "/", body=data, headers=headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        content_type = resp.getheader("Content-Type") or ""
+        if resp.status >= 400:
+            raise RuntimeError(
+                f"PEAC API {resp.status}:\n{_format_response_body(raw, content_type)}"
+            )
+        return resp.status, raw, content_type
+    finally:
+        conn.close()
+
+
+def _request(method: str, path: str, *, body: dict[str, Any], timeout: int | None = None) -> tuple[int, bytes, str]:
     url = f"{_base_url()}{path}"
     data = json.dumps(body).encode()
-    req = Request(url, data=data, method=method)
-    for key, value in _auth_headers().items():
-        req.add_header(key, value)
-    req.add_header("Content-Type", "application/json")
+    payload_mb = len(data) / (1024 * 1024)
+    # Scale timeout with payload size — large base64 posts need headroom.
+    if timeout is None:
+        timeout = max(120, int(60 + payload_mb * 15))
 
     log_body = dict(body)
     if "Document Details" in log_body:
         log_body["Document Details"] = f"<{len(log_body['Document Details'])} document(s), base64 omitted>"
     print("\n" + "=" * 72)
     print(f"[PEAC] >>> {method} {url}")
+    print(f"[PEAC] Payload size: {payload_mb:.2f} MB ({len(data)} bytes)")
     print(f"[PEAC] Request body: {json.dumps(log_body, indent=2)}")
 
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            raw = resp.read()
-            content_type = resp.headers.get("Content-Type", "")
-            print(f"[PEAC] <<< {resp.status} {method}")
+    last_exc: BaseException | None = None
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        try:
+            status, raw, content_type = _request_once(method, path, data=data, timeout=timeout)
+            print(f"[PEAC] <<< {status} {method} (attempt {attempt}/{_RETRY_ATTEMPTS})")
             print(f"[PEAC] Response body: {_format_response_body(raw, content_type)}")
             print("=" * 72 + "\n")
-            return resp.status, raw, content_type
-    except HTTPError as exc:
-        err_body = exc.read()
-        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
-        print(f"[PEAC] <<< {exc.code} {method} (HTTP error)")
-        print(f"[PEAC] Response body: {_format_response_body(err_body, content_type)}")
-        print("=" * 72 + "\n")
-        raise RuntimeError(f"PEAC API {exc.code}:\n{_format_response_body(err_body, content_type)}") from exc
-    except URLError as exc:
-        print(f"[PEAC] <<< UNREACHABLE {method}")
-        print(f"[PEAC] Error: {exc}")
-        print("=" * 72 + "\n")
-        raise RuntimeError(f"PEAC API unreachable ({method} {path}): {exc}") from exc
+            return status, raw, content_type
+        except RuntimeError as exc:
+            # HTTP status errors from PEAC (e.g. "PEAC API 400: ...") are final.
+            if str(exc).startswith("PEAC API ") and not _is_transient(exc):
+                print(f"[PEAC] <<< HTTP error (attempt {attempt})")
+                print(f"[PEAC] Error: {exc}")
+                print("=" * 72 + "\n")
+                raise
+            last_exc = exc
+        except (URLError, TimeoutError, ConnectionError, BrokenPipeError, OSError, http.client.HTTPException) as exc:
+            last_exc = exc
+        except HTTPError as exc:
+            err_body = exc.read()
+            content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+            print(f"[PEAC] <<< {exc.code} {method} (HTTP error)")
+            print(f"[PEAC] Response body: {_format_response_body(err_body, content_type)}")
+            print("=" * 72 + "\n")
+            raise RuntimeError(f"PEAC API {exc.code}:\n{_format_response_body(err_body, content_type)}") from exc
+
+        assert last_exc is not None
+        if attempt >= _RETRY_ATTEMPTS or not _is_transient(last_exc):
+            print(f"[PEAC] <<< UNREACHABLE {method}")
+            print(f"[PEAC] Error: {last_exc}")
+            print("=" * 72 + "\n")
+            raise RuntimeError(f"PEAC API unreachable ({method} {path}): {last_exc}") from last_exc
+        wait = min(2 ** (attempt - 1), 8)
+        print(f"[PEAC] retry {attempt}/{_RETRY_ATTEMPTS} after transient error: {last_exc} (sleep {wait}s)")
+        time.sleep(wait)
+
+    assert last_exc is not None
+    raise RuntimeError(f"PEAC API unreachable ({method} {path}): {last_exc}") from last_exc
+
+
+def _shrink_pdf_for_peac(filename: str, data: bytes) -> bytes:
+    """Compress oversized PDFs so the single-call PEAC POST stays under PEAC's pipe limit."""
+    if not data or len(data) <= _COMPRESS_IF_LARGER_THAN:
+        return data
+    if not data.lstrip()[:8].startswith(b"%PDF"):
+        return data
+    try:
+        result, compressed = compress_pdf(data, CompressionPreset.BALANCED)
+        if len(compressed) < len(data):
+            print(
+                f"[PEAC] compressed {filename}: "
+                f"{result.original_bytes} -> {result.compressed_bytes} bytes "
+                f"({result.reduction_percent}% via {result.method})"
+            )
+            data = compressed
+        # Still huge? try aggressive once more.
+        if len(data) > 4_000_000:
+            result2, compressed2 = compress_pdf(data, CompressionPreset.AGGRESSIVE)
+            if len(compressed2) < len(data):
+                print(
+                    f"[PEAC] re-compressed {filename} aggressively: "
+                    f"{result2.original_bytes} -> {result2.compressed_bytes} bytes"
+                )
+                data = compressed2
+    except Exception as exc:
+        print(f"[PEAC] compress skipped for {filename}: {exc}")
+    return data
 
 
 def _digits(value: Any, max_len: int | None = None) -> str:
@@ -198,16 +306,18 @@ def submit_application(
     PEAC's own conventions, e.g. "FS - Bank Statements - Jan" or
     "FS - Credit Application" (see the reference Deluge function)."""
     owner = owners[0] if owners else {}
-    doc_list = [
-        {
-            "Attachment": filename,
-            "FileDataEncoded": base64.b64encode(data).decode("ascii"),
-            "FileExtension": ".pdf",
-            "Document Type": doc_type,
-            "Description": doc_type,
-        }
-        for filename, data, doc_type in files
-    ]
+    doc_list = []
+    for filename, data, doc_type in files:
+        shrunk = _shrink_pdf_for_peac(filename, data)
+        doc_list.append(
+            {
+                "Attachment": filename,
+                "FileDataEncoded": base64.b64encode(shrunk).decode("ascii"),
+                "FileExtension": ".pdf",
+                "Document Type": doc_type,
+                "Description": doc_type,
+            }
+        )
 
     payload = {
         "PartnerId": os.getenv("PEAC_PARTNER_ID") or "",
@@ -225,6 +335,40 @@ def submit_application(
         "Owner Details": [_build_owner_details(owner)],
         "Document Details": doc_list,
     }
+
+    encoded_size = len(json.dumps(payload).encode())
+    if encoded_size > _MAX_PAYLOAD_BYTES:
+        # Last-resort: aggressively recompress every PDF and rebuild.
+        print(
+            f"[PEAC] payload {encoded_size} bytes exceeds {_MAX_PAYLOAD_BYTES}; "
+            "rebuilding with aggressive compression"
+        )
+        doc_list = []
+        for filename, data, doc_type in files:
+            try:
+                _, aggressive = compress_pdf(data, CompressionPreset.AGGRESSIVE)
+                if len(aggressive) < len(data):
+                    data = aggressive
+            except Exception as exc:
+                print(f"[PEAC] aggressive compress skipped for {filename}: {exc}")
+            data = _shrink_pdf_for_peac(filename, data)
+            doc_list.append(
+                {
+                    "Attachment": filename,
+                    "FileDataEncoded": base64.b64encode(data).decode("ascii"),
+                    "FileExtension": ".pdf",
+                    "Document Type": doc_type,
+                    "Description": doc_type,
+                }
+            )
+        payload["Document Details"] = doc_list
+        encoded_size = len(json.dumps(payload).encode())
+        if encoded_size > _MAX_PAYLOAD_BYTES:
+            raise RuntimeError(
+                f"PEAC payload is still too large after compression "
+                f"({encoded_size / (1024 * 1024):.1f} MB). "
+                "Please use fewer or smaller bank statements and retry."
+            )
 
     _, raw, content_type = _request("POST", "/ws/rest/wcl/v1/createWclApi/", body=payload)
     try:
