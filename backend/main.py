@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import threading
 import os
@@ -71,7 +72,11 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # Keith clicks Submit on several funders at once. Requests stay accepted in
 # parallel; this semaphore limits how many heavy partner API calls run at the
 # same time so PM2 does not kill uvicorn on a RAM spike.
-_PARTNER_SLOTS = threading.Semaphore(int(os.getenv("PARTNER_MAX_CONCURRENT", "4")))
+_PARTNER_SLOTS = threading.Semaphore(int(os.getenv("PARTNER_MAX_CONCURRENT", "2")))
+
+# Aquamark process + PDF compress are the main RAM spikes. Keep them serialized
+# so concurrent "Compress all" / multi-user PDF work cannot OOM-kill the API.
+_PDF_SLOTS = threading.Semaphore(int(os.getenv("PDF_MAX_CONCURRENT", "1")))
 
 
 def partner_concurrency():
@@ -81,6 +86,21 @@ def partner_concurrency():
         yield
     finally:
         _PARTNER_SLOTS.release()
+
+
+def pdf_concurrency():
+    """FastAPI sync dependency — one heavy PDF job at a time by default."""
+    _PDF_SLOTS.acquire()
+    try:
+        yield
+    finally:
+        _PDF_SLOTS.release()
+
+
+def _release_memory(*objs: Any) -> None:
+    """Drop large byte buffers and encourage the allocator to return pages."""
+    del objs
+    gc.collect()
 
 
 app = FastAPI(title="VAT Portal API", version="1.0.0")
@@ -526,6 +546,7 @@ def aquamark_status(_user=Depends(require_auth)):
 @app.post("/api/aquamark/process")
 async def process_documents(
     _user=Depends(require_auth),
+    _pdf_slot=Depends(pdf_concurrency),
     brand_name: str = Form(...),
     deal_name: str = Form("Deal"),
     aquamark_user_email: str = Form(""),
@@ -653,18 +674,32 @@ async def process_documents(
                 detail = detail + "\n\nPer-file errors:\n" + "\n".join(errors)
             raise HTTPException(502, detail) from batch_exc
 
+    # Uploads are already on Aquamark / in batch_items — free the originals
+    # before flatten so peak RSS stays closer to one PDF at a time.
+    source_file_count = len(uploaded)
+    uploaded.clear()
+    _release_memory()
+
     results: list[dict[str, Any]] = []
     flatten_enabled = os.getenv("AQUAMARK_FLATTEN", "true").lower() in ("1", "true", "yes")
+    try:
+        flatten_matrix = float(os.getenv("AQUAMARK_FLATTEN_MATRIX", "1.5"))
+    except ValueError:
+        flatten_matrix = 1.5
     for item in batch_items:
         out_name = item["name"]
-        pdf_bytes = item["data"]
+        pdf_bytes = item.pop("data", b"")
+        size = 0
         if flatten_enabled:
             try:
-                pdf_bytes = flatten_pdf(pdf_bytes)
+                flattened = flatten_pdf(pdf_bytes, flatten_matrix=flatten_matrix)
+                _release_memory(pdf_bytes)
+                pdf_bytes = flattened
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(502, f"PDF flatten failed for {out_name}: {exc}") from exc
         out_path = job_dir / out_name
         out_path.write_bytes(pdf_bytes)
+        size = len(pdf_bytes)
         recipient = item.get("recipient") or ""
         results.append(
             {
@@ -673,9 +708,13 @@ async def process_documents(
                 "recipient": recipient,
                 "recipient_email": email_for_recipient(recipient),
                 "download": f"/api/aquamark/download/{job_id}/{out_name}",
-                "size": len(pdf_bytes),
+                "size": size,
             }
         )
+        _release_memory(pdf_bytes)
+
+    batch_items.clear()
+    _release_memory()
 
     if not results:
         raise HTTPException(400, "; ".join(errors) or "Processing failed.")
@@ -688,7 +727,7 @@ async def process_documents(
         "recipients": funder_names,
         "errors": errors,
         "recipient_count": len(normalized),
-        "source_file_count": len(uploaded),
+        "source_file_count": source_file_count,
     }
 
 
@@ -733,6 +772,7 @@ def compress_processed_file(
     filename: str,
     preset: str = Body("balanced", embed=True),
     _user=Depends(require_auth),
+    _pdf_slot=Depends(pdf_concurrency),
 ):
     if not re.fullmatch(r"[a-f0-9]{12}", job_id):
         raise HTTPException(400, "Invalid job id.")
@@ -753,11 +793,12 @@ def compress_processed_file(
         result, compressed_data = compress_pdf(raw, compression_preset)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Compression failed: {exc}") from exc
+    finally:
+        _release_memory(raw)
 
     compressed_name = f"{Path(safe_name).stem}_compressed.pdf"
     (OUTPUT_DIR / job_id / compressed_name).write_bytes(compressed_data)
-
-    return CompressResponse(
+    response = CompressResponse(
         ok=True,
         name=compressed_name,
         original_size=result.original_bytes,
@@ -765,6 +806,8 @@ def compress_processed_file(
         reduction_percent=result.reduction_percent,
         download=f"/api/aquamark/download/{job_id}/{compressed_name}",
     )
+    _release_memory(compressed_data)
+    return response
 
 
 @app.get("/api/email/status")

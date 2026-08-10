@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import io
 import shutil
 import subprocess
@@ -172,25 +173,38 @@ def compress_pdf(
         pass
 
     current = _recompress_images_pymupdf(data, preset)
-    current = _optimize_pikepdf(current)
+    optimized = _optimize_pikepdf(current)
+    if optimized is not current:
+        del current
+        current = optimized
+    gc.collect()
 
     method = "pymupdf+pikepdf"
     gs_result = _ghostscript_compress(current, preset)
     if gs_result and len(gs_result) < len(current):
+        del current
         current = gs_result
         method = "pymupdf+pikepdf+ghostscript"
+        gc.collect()
 
     # If still larger than original (rare), keep best effort
-    if len(current) >= original_size and len(_optimize_pikepdf(data)) < len(current):
-        fallback = _recompress_images_pymupdf(data, CompressionPreset.AGGRESSIVE)
-        if len(fallback) < len(current):
-            current = fallback
-            method = "pymupdf-aggressive-fallback"
+    if len(current) >= original_size:
+        pike_fallback = _optimize_pikepdf(data)
+        if len(pike_fallback) < len(current):
+            fallback = _recompress_images_pymupdf(data, CompressionPreset.AGGRESSIVE)
+            if len(fallback) < len(current):
+                del current
+                current = fallback
+                method = "pymupdf-aggressive-fallback"
+            del pike_fallback
+            gc.collect()
 
-    return CompressionResult(
+    result = CompressionResult(
         original_bytes=original_size,
         compressed_bytes=len(current),
         method=method,
         preset=preset.value,
         page_count=page_count,
-    ), current
+    )
+    gc.collect()
+    return result, current

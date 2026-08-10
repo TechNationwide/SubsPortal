@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import fitz
+
+
+def _default_flatten_matrix() -> float:
+    try:
+        return float(os.getenv("AQUAMARK_FLATTEN_MATRIX", "1.5"))
+    except ValueError:
+        return 1.5
 
 
 def _open_watermark(watermark_bytes: bytes) -> fitz.Pixmap:
@@ -40,18 +48,24 @@ def _text_watermark_pixmap(brand_name: str, width: float, height: float) -> byte
     return pix.tobytes("png")
 
 
-def flatten_pdf(pdf_bytes: bytes, *, flatten_matrix: float = 2.0) -> bytes:
+def flatten_pdf(pdf_bytes: bytes, *, flatten_matrix: float | None = None) -> bytes:
     """Rasterize each page so watermarks and content are baked into a single layer."""
+    matrix_value = _default_flatten_matrix() if flatten_matrix is None else flatten_matrix
     src = fitz.open(stream=pdf_bytes, filetype="pdf")
     flat = fitz.open()
-    matrix = fitz.Matrix(flatten_matrix, flatten_matrix)
-    for page in src:
-        pix = page.get_pixmap(matrix=matrix, alpha=False)
-        np = flat.new_page(width=page.rect.width, height=page.rect.height)
-        np.insert_image(np.rect, pixmap=pix)
-    src.close()
-    out = flat.tobytes(deflate=True, garbage=4)
-    flat.close()
+    try:
+        matrix = fitz.Matrix(matrix_value, matrix_value)
+        for page in src:
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            try:
+                np = flat.new_page(width=page.rect.width, height=page.rect.height)
+                np.insert_image(np.rect, pixmap=pix)
+            finally:
+                pix = None
+        out = flat.tobytes(deflate=True, garbage=4)
+    finally:
+        src.close()
+        flat.close()
     return out
 
 

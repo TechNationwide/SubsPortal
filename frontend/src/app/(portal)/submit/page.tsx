@@ -438,32 +438,31 @@ export default function SubmitDealPage() {
     let successCount = 0;
     let reductionSum = 0;
     try {
-      await Promise.all(
-        targets.map(async (file) => {
-          try {
-            const filename = file.download.split("/").pop() || file.name;
-            const result = await api.compressProcessedFile(currentJobId, filename, batchPreset);
-            setResults((prev) =>
-              prev.map((f) =>
-                f.download === file.download
-                  ? {
-                      ...f,
-                      name: result.name,
-                      size: result.compressed_size,
-                      download: result.download,
-                      compressed: true,
-                    }
-                  : f,
-              ),
-            );
-            await api.deleteProcessedFile(file.download).catch(() => undefined);
-            successCount += 1;
-            reductionSum += result.reduction_percent;
-          } catch {
-            /* leave this one as-is; summary below reflects the shortfall */
-          }
-        }),
-      );
+      // One file at a time — parallel compress spikes API RAM and causes Failed to fetch.
+      for (const file of targets) {
+        try {
+          const filename = file.download.split("/").pop() || file.name;
+          const result = await api.compressProcessedFile(currentJobId, filename, batchPreset);
+          setResults((prev) =>
+            prev.map((f) =>
+              f.download === file.download
+                ? {
+                    ...f,
+                    name: result.name,
+                    size: result.compressed_size,
+                    download: result.download,
+                    compressed: true,
+                  }
+                : f,
+            ),
+          );
+          await api.deleteProcessedFile(file.download).catch(() => undefined);
+          successCount += 1;
+          reductionSum += result.reduction_percent;
+        } catch {
+          /* leave this one as-is; summary below reflects the shortfall */
+        }
+      }
     } finally {
       setBatchCompressing(false);
     }

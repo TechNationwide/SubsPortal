@@ -11,13 +11,20 @@ module.exports = {
       cwd: path.join(root, "backend"),
       interpreter: "none",
       watch: false,
-      max_memory_restart: "1100M",
+      // Cushion after PDF serialization; still restart before full host OOM.
+      max_memory_restart: "1400M",
+      env: {
+        MALLOC_ARENA_MAX: "2",
+        PDF_MAX_CONCURRENT: "1",
+        PARTNER_MAX_CONCURRENT: "2",
+        AQUAMARK_FLATTEN_MATRIX: "1.5",
+      },
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
       error_file: path.join(root, "logs/api-error.log"),
       out_file: path.join(root, "logs/api-out.log"),
       merge_logs: true,
       autorestart: true,
-      max_restarts: 10,
+      max_restarts: 40,
       restart_delay: 5000,
     },
     {

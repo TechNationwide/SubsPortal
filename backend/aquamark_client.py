@@ -18,10 +18,10 @@ Environment (backend/.env):
 from __future__ import annotations
 
 import base64
-import io
 import json
 import os
 import re
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -270,6 +270,8 @@ def _submit_job(
         )
 
     _, raw, content_type = _with_retry("submit", _do_submit)
+    # Drop the large base64 payload as soon as Aquamark accepts the job.
+    payload.clear()
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -388,23 +390,35 @@ def process_batch(
     zip_bytes = _download_zip(job_id, user_email)
 
     results: list[dict[str, Any]] = []
-    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
-            name = Path(info.filename).name
-            if not name.lower().endswith(".pdf"):
-                continue
-            data = zf.read(info)
-            original, recipient = _match_zip_entry(name, files, attributed)
-            results.append(
-                {
-                    "name": name,
-                    "data": data,
-                    "original": original,
-                    "recipient": recipient,
-                }
-            )
+    # Persist the ZIP to disk so we are not holding zip + all extracted PDFs
+    # as separate large heap objects for the whole extract loop.
+    with tempfile.NamedTemporaryFile(prefix="aquamark-", suffix=".zip", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        tmp.write(zip_bytes)
+    zip_bytes = b""
+    try:
+        with zipfile.ZipFile(tmp_path) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                name = Path(info.filename).name
+                if not name.lower().endswith(".pdf"):
+                    continue
+                data = zf.read(info)
+                original, recipient = _match_zip_entry(name, files, attributed)
+                results.append(
+                    {
+                        "name": name,
+                        "data": data,
+                        "original": original,
+                        "recipient": recipient,
+                    }
+                )
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
     if not results:
         raise RuntimeError("Aquamark ZIP contained no PDF files.")
     return results

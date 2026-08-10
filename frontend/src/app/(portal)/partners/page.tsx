@@ -514,28 +514,27 @@ export default function ApiPartnersPage() {
     let successCount = 0;
     let reductionSum = 0;
     try {
-      await Promise.all(
-        targets.map(async (file) => {
-          const currentJobId = jobIdFromDownloadPath(file.download);
-          if (!currentJobId) return;
-          try {
-            const filename = file.download.split("/").pop() || file.name;
-            const result = await api.compressProcessedFile(currentJobId, filename, batchPreset);
-            setResults((prev) =>
-              prev.map((f) =>
-                f.download === file.download
-                  ? { ...f, name: result.name, size: result.compressed_size, download: result.download, compressed: true }
-                  : f,
-              ),
-            );
-            await api.deleteProcessedFile(file.download).catch(() => undefined);
-            successCount += 1;
-            reductionSum += result.reduction_percent;
-          } catch {
-            /* leave as-is */
-          }
-        }),
-      );
+      // One file at a time — parallel compress spikes API RAM and causes Failed to fetch.
+      for (const file of targets) {
+        const currentJobId = jobIdFromDownloadPath(file.download);
+        if (!currentJobId) continue;
+        try {
+          const filename = file.download.split("/").pop() || file.name;
+          const result = await api.compressProcessedFile(currentJobId, filename, batchPreset);
+          setResults((prev) =>
+            prev.map((f) =>
+              f.download === file.download
+                ? { ...f, name: result.name, size: result.compressed_size, download: result.download, compressed: true }
+                : f,
+            ),
+          );
+          await api.deleteProcessedFile(file.download).catch(() => undefined);
+          successCount += 1;
+          reductionSum += result.reduction_percent;
+        } catch {
+          /* leave as-is */
+        }
+      }
     } finally {
       setBatchCompressing(false);
     }

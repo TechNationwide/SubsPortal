@@ -26,10 +26,18 @@ export function authHeaders(): Record<string, string> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { ...authHeaders(), ...(init.headers || {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: { ...authHeaders(), ...(init.headers || {}) },
+    });
+  } catch {
+    // Browser TypeError: Failed to fetch — usually API restart / connection drop.
+    throw new Error(
+      "Connection lost while talking to the portal API (often during heavy PDF work). Wait a few seconds and try again.",
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (data as { detail?: unknown }).detail;
