@@ -92,6 +92,7 @@ import re
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 DEFAULT_ACCOUNTS_URL = "https://accounts.zoho.com"
@@ -182,12 +183,45 @@ def _raw_request(
         raise RuntimeError(f"Zoho API unreachable ({method} {url}): {exc}") from exc
 
 
+def _token_refresh_error_message(data: dict[str, Any]) -> str:
+    """Turn Zoho's opaque OAuth errors into an actionable portal message.
+
+    `invalid_code` on grant_type=refresh_token almost always means the stored
+    refresh token (or its matching client secret) was revoked/rotated in the
+    Zoho API Console — not a bad Lead ID or CRM payload. Remint with
+    `scripts/zoho_exchange_grant.py` after generating a fresh Self Client code.
+    """
+    err = str(data.get("error") or "unknown_error")
+    detail = data.get("error_description")
+    base = f"Zoho token refresh failed: {json.dumps(data, indent=2)}"
+    if err == "invalid_code":
+        return (
+            f"{base}\n\n"
+            "This usually means ZOHO_REFRESH_TOKEN was revoked or the Self Client "
+            "secret was rotated. Generate a new Self Client grant code in the Zoho "
+            "API Console (scopes: ZohoCRM.modules.ALL,ZohoSearch.securesearch.READ), "
+            "then run: .venv/bin/python scripts/zoho_exchange_grant.py --code '<CODE>' "
+            "and restart vateam-api."
+        )
+    if err == "invalid_client":
+        return (
+            f"{base}\n\n"
+            "ZOHO_CLIENT_ID / ZOHO_CLIENT_SECRET do not match the Self Client in "
+            "Zoho API Console. Update backend/.env and remint the refresh token."
+        )
+    if detail:
+        return f"{base}\n\n{detail}"
+    return base
+
+
 def _fetch_token() -> tuple[str, float]:
-    body = (
-        f"refresh_token={os.environ['ZOHO_REFRESH_TOKEN']}"
-        f"&client_id={os.environ['ZOHO_CLIENT_ID']}"
-        f"&client_secret={os.environ['ZOHO_CLIENT_SECRET']}"
-        f"&grant_type=refresh_token"
+    body = urlencode(
+        {
+            "refresh_token": os.environ["ZOHO_REFRESH_TOKEN"],
+            "client_id": os.environ["ZOHO_CLIENT_ID"],
+            "client_secret": os.environ["ZOHO_CLIENT_SECRET"],
+            "grant_type": "refresh_token",
+        }
     ).encode()
     _, raw, _ = _raw_request(
         "POST",
@@ -201,7 +235,7 @@ def _fetch_token() -> tuple[str, float]:
         raise RuntimeError("Zoho token response was not valid JSON.") from None
     token = data.get("access_token")
     if not token:
-        raise RuntimeError(f"Zoho token refresh failed:\n{json.dumps(data, indent=2)}")
+        raise RuntimeError(_token_refresh_error_message(data))
     expires_in = float(data.get("expires_in") or 3600)
     return token, time.monotonic() + expires_in
 
