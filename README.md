@@ -33,16 +33,41 @@ npm run dev
 
 Open: http://localhost:3000
 
-Sign in with any email/password (demo mode).
+Production: https://portal.nationwideadvance.com
+
+## Documentation
+
+| What | Where |
+|------|--------|
+| **Interactive API docs** (Swagger / OpenAPI) | FastAPI: local `http://127.0.0.1:8000/docs` — production box `http://127.0.0.1:8006/docs` (nginx only exposes `/api/*` publicly) |
+| **Engineering handoff** | https://subsportal-handoff-docs.vercel.app/ |
+| **This repo** | https://github.com/TechNationwide/SubsPortal |
 
 ## Pages
 
 | Route | Description |
 |-------|-------------|
+| `/login` | Portal sign-in |
+| `/submit` | Submit deal — Aquamark watermark, downloads, email |
+| `/partners` | API Partners — OnDeck, CAN, PEAC, Channel, iDea |
+| `/zoho` | Zoho Lead pull / edit / push |
 | `/teams` | CRM list + modal (members editor) |
 | `/brands` | CRM list + modal (logo upload, submission email) |
 | `/funders` | CRM list + modal (searchable multi-brand picker) |
-| `/submit` | Submit deal — Aquamark watermark, downloads, email preview |
+| `/users` | User admin |
+| `/access` | Partner/API access flags |
+
+## Zoho write-back (API Partners)
+
+If a **Zoho Lead ID** is filled in on `/partners` before submit, a successful create writes funder IDs onto that Lead (same fields as the old Zoho Deluge buttons). Push to Zoho (business/owner/loan) is unchanged.
+
+| Submit | Zoho fields |
+|--------|-------------|
+| OnDeck | `business_id`, `lead_url`, `app_no` (+ OnDeck status stage when available) |
+| CAN Capital | `canCapital_App_No` / `canCapital_App_No_1` |
+| iDea Financial | `IdeaFinancial_App_ID` |
+
+Funder submit still succeeds if the Zoho write fails. PEAC / Channel are not mapped to that Dev: onDeck section.
 
 ## Aquamark integration
 
