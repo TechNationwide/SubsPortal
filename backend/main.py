@@ -106,6 +106,37 @@ def _release_memory(*objs: Any) -> None:
 app = FastAPI(title="VAT Portal API", version="1.0.0")
 
 
+def _push_partner_ids_to_zoho(lead_id: str, submission_id: int, fields: dict[str, Any]) -> str:
+    """Best-effort write of funder IDs / OnDeck stage onto the Zoho Lead.
+
+    Never fails the partner submit — the funder application already exists.
+    """
+    lead_id = (lead_id or "").strip()
+    if not lead_id:
+        return ""
+    if not zoho_client.zoho_configured():
+        return "Zoho CRM is not configured."
+    try:
+        zoho_client.update_lead_partner_refs(lead_id, fields)
+        _log_event(submission_id, "zoho_partner_ids", True, 200, json.dumps(fields, default=str))
+        return "ok"
+    except (RuntimeError, ValueError) as exc:
+        _log_event(submission_id, "zoho_partner_ids", False, None, str(exc))
+        return str(exc)
+
+
+def _ondeck_status_stage(business_id: str) -> str:
+    """Same as Zoho button.dev_check_onDeck_app_status — outcomeStatus.stage."""
+    try:
+        status_data = ondeck_client.get_status(business_id)
+    except RuntimeError:
+        return ""
+    outcome = status_data.get("outcomeStatus") if isinstance(status_data, dict) else None
+    if not isinstance(outcome, dict):
+        return ""
+    return str(outcome.get("stage") or "").strip()
+
+
 def _partner_error(exc: Exception) -> HTTPException:
     """Funder validation failures are client-fixable (400). True upstream
     outages stay 502. Avoid a bare 'Bad Gateway' toast when the funder
@@ -970,7 +1001,24 @@ def ondeck_submit_application(
 
     _log_event(submission["id"], "ondeck_submit_application", True, 201, f"businessID={result['business_id']}")
     updated = update_partner_submission(submission["id"], status="submitted", external_id=result["business_id"])
-    return {"ok": True, "data": updated}
+    zoho_fields: dict[str, Any] = {
+        "business_id": result["business_id"],
+        "lead_url": result.get("lead_url") or "",
+        "app_no": result.get("app_no") or "",
+    }
+    ondeck_stage = _ondeck_status_stage(result["business_id"])
+    zoho_sync = _push_partner_ids_to_zoho(body.zoho_lead_id, submission["id"], zoho_fields)
+    # Second write: Zoho button.dev_check_onDeck_app_status return value.
+    # Own call so a missing status field cannot roll back business_id / app_no.
+    if zoho_sync == "ok" and ondeck_stage:
+        status_sync = _push_partner_ids_to_zoho(
+            body.zoho_lead_id,
+            submission["id"],
+            {"OnDeck_App_Status": ondeck_stage},
+        )
+        if status_sync and status_sync != "ok":
+            zoho_sync = f"ok; OnDeck status field skipped ({status_sync})"
+    return {"ok": True, "data": updated, "zoho_sync": zoho_sync}
 
 
 @app.post("/api/partners/ondeck/{submission_id}/send-documents")
@@ -1056,7 +1104,20 @@ def can_create_application(
     updated = update_partner_submission(
         submission["id"], status="submitted", external_id=result["application_name"]
     )
-    return {"ok": True, "data": updated}
+    app_no = result["application_name"]
+    zoho_sync = _push_partner_ids_to_zoho(
+        body.zoho_lead_id,
+        submission["id"],
+        {"canCapital_App_No": app_no},
+    )
+    extra = _push_partner_ids_to_zoho(
+        body.zoho_lead_id,
+        submission["id"],
+        {"canCapital_App_No_1": app_no},
+    )
+    if zoho_sync != "ok" and extra == "ok":
+        zoho_sync = "ok"
+    return {"ok": True, "data": updated, "zoho_sync": zoho_sync}
 
 
 @app.post("/api/partners/can/{submission_id}/send-documents")
@@ -1347,7 +1408,12 @@ def idea_create_application(
 
     _log_event(submission["id"], "idea_create_application", True, 200, f"application_id={result['application_id']}")
     updated = update_partner_submission(submission["id"], status="submitted", external_id=result["application_id"])
-    return {"ok": True, "data": updated}
+    zoho_sync = _push_partner_ids_to_zoho(
+        body.zoho_lead_id,
+        submission["id"],
+        {"IdeaFinancial_App_ID": result["application_id"]},
+    )
+    return {"ok": True, "data": updated, "zoho_sync": zoho_sync}
 
 
 @app.post("/api/partners/idea/{submission_id}/send-documents")

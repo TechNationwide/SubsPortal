@@ -292,7 +292,12 @@ def submit_application(
     business_id = data.get("businessID")
     if not business_id:
         raise RuntimeError(f"OnDeck submit-application did not return a businessID:\n{json.dumps(data, indent=2)}")
-    return {"business_id": business_id, "raw": data}
+    return {
+        "business_id": business_id,
+        "lead_url": str(data.get("url") or data.get("leadUrl") or ""),
+        "app_no": str(data.get("applicationNumber") or data.get("application_number") or ""),
+        "raw": data,
+    }
 
 
 def upload_documents(

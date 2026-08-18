@@ -552,6 +552,7 @@ export default function ApiPartnersPage() {
       brand_name: info.brandName,
       deal_name: dealName,
       aquamark_job_id: info.jobId,
+      zoho_lead_id: zohoLeadId.trim(),
       business,
       owners,
       loan,
@@ -661,7 +662,14 @@ export default function ApiPartnersPage() {
         res = await api.partners.canCreate(payload);
       }
       setSubmissions((prev) => ({ ...prev, [key]: res.data }));
-      showToast(`Submitted to ${entry.label}. Reference: ${res.data.external_id}.`, "success");
+      const zohoSync = "zoho_sync" in res ? String(res.zoho_sync || "") : "";
+      let message = `Submitted to ${entry.label}. Reference: ${res.data.external_id}.`;
+      if (zohoLeadId.trim() && zohoSync === "ok") {
+        message += " Zoho Lead updated.";
+      } else if (zohoLeadId.trim() && zohoSync) {
+        message += ` Zoho update: ${zohoSync}`;
+      }
+      showToast(message, "success");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Submission failed.", "error");
     } finally {

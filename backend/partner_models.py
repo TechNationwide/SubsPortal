@@ -57,6 +57,7 @@ class PartnerSubmissionCreateBody(BaseModel):
     brand_name: str
     deal_name: str = "Deal"
     aquamark_job_id: str = ""
+    zoho_lead_id: str = ""
     business: BusinessDetailsBody
     owners: list[OwnerDetailsBody] = Field(min_length=1, max_length=2)
     loan: LoanDetailsBody

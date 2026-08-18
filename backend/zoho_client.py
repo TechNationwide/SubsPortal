@@ -439,6 +439,29 @@ def update_lead(
     return result
 
 
+def update_lead_partner_refs(lead_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    """Partial Lead update for funder IDs / OnDeck status only.
+
+    Matches the Zoho Deluge buttons: write lead_url, app_no, business_id,
+    IdeaFinancial_App_ID, canCapital_App_No. Empty values are omitted so a
+    later CAN submit cannot blank an existing OnDeck id (and vice versa).
+    """
+    payload = {key: value for key, value in fields.items() if value not in (None, "")}
+    if not payload:
+        return {"status": "skipped"}
+    _, raw, content_type = _authed_request("PUT", f"/crm/v2/Leads/{lead_id}", body={"data": [payload]})
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"Zoho Leads PUT (partner refs) returned invalid JSON:\n{_format_response_body(raw, content_type)}"
+        ) from None
+    result = (data.get("data") or [{}])[0]
+    if result.get("status") != "success":
+        raise RuntimeError(f"Zoho Leads PUT (partner refs) was rejected:\n{json.dumps(data, indent=2)}")
+    return result
+
+
 def describe_integration() -> dict[str, Any]:
     return {
         "configured": zoho_configured(),

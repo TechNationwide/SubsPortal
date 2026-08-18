@@ -273,7 +273,7 @@ export const api = {
     },
 
     ondeckSubmit(payload: PartnerSubmissionCreatePayload) {
-      return request<{ ok: boolean; data: PartnerSubmission }>(
+      return request<{ ok: boolean; data: PartnerSubmission; zoho_sync?: string }>(
         "/api/partners/ondeck/submit-application",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
       );
@@ -290,7 +290,7 @@ export const api = {
     },
 
     canCreate(payload: PartnerSubmissionCreatePayload) {
-      return request<{ ok: boolean; data: PartnerSubmission }>(
+      return request<{ ok: boolean; data: PartnerSubmission; zoho_sync?: string }>(
         "/api/partners/can/create-application",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
       );
@@ -365,7 +365,7 @@ export const api = {
     },
 
     ideaCreate(payload: PartnerSubmissionCreatePayload) {
-      return request<{ ok: boolean; data: PartnerSubmission }>(
+      return request<{ ok: boolean; data: PartnerSubmission; zoho_sync?: string }>(
         "/api/partners/idea/create-application",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
       );
@@ -422,6 +422,7 @@ export type PartnerSubmissionCreatePayload = {
   brand_name: string;
   deal_name: string;
   aquamark_job_id: string;
+  zoho_lead_id?: string;
   business: BusinessDetails;
   owners: OwnerDetails[];
   loan: LoanDetails;
