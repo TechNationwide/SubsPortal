@@ -5355,6 +5355,7 @@ body::after {
 
 /* Kill stuck fade-outs: text must never start/end invisible */
 .login-brand-mark,
+.login-brand-name,
 .login-brand-panel h2,
 .login-brand-panel .tagline,
 .login-feature,
@@ -5852,6 +5853,7 @@ a, button, input, select, textarea, .site-nav-link {
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
    Login / Sign-in motion (transform-based — text stays visible)
    ═══════════════════════════════════════════════════════════════ */
@@ -6057,3 +6059,52 @@ a, button, input, select, textarea, .site-nav-link {
   }
   .btn-login.is-loading .btn-login-label::after { animation: spin 0.7s linear infinite; }
 }
+
+/* ── Nationwide brand lockup (app-style) ── */
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.brand-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.login-brand-wordmark {
+  width: min(240px, 72vw);
+  max-width: 240px;
+  margin: 0 0 20px;
+  border-radius: 12px;
+  overflow: hidden;
+  animation: markSlide 0.7s var(--ease-out) both;
+}
+
+.login-card-brand {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.login-card-wordmark {
+  width: min(180px, 58vw);
+  max-width: 180px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.header-brand-wordmark {
+  width: 132px;
+  max-width: 132px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+

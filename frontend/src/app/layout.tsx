@@ -3,8 +3,15 @@ import "../styles/portal.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "VAT Submission Portal",
-  description: "Multi-brand deal submission portal",
+  title: "Nationwide Submission Portal",
+  description: "Nationwide multi-brand deal submission portal",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/brand/nationwide-app-icon.png", type: "image/png", sizes: "192x192" },
+    ],
+    apple: [{ url: "/brand/nationwide-app-icon.png", type: "image/png" }],
+  },
   robots: {
     index: false,
     follow: false,

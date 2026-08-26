@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandLogo } from "@/components/BrandLogo";
 import { api } from "@/lib/api";
 import { setSession } from "@/lib/auth";
 
@@ -51,7 +52,7 @@ export default function LoginPage() {
       <div className="login-split">
         <div className="login-brand-panel">
           <div className="login-brand-content">
-            <p className="login-brand-mark">VAT</p>
+            <BrandLogo variant="full" tone="brand" className="login-brand-wordmark" priority />
             <div className="login-gold-rule" aria-hidden="true" />
             <h2>
               Submission
@@ -79,6 +80,9 @@ export default function LoginPage() {
         </div>
         <div className="login-card">
           <div className="login-header">
+            <div className="login-card-brand">
+              <BrandLogo variant="full" tone="brand" className="login-card-wordmark" />
+            </div>
             <h1>Welcome back</h1>
             <p className="login-welcome">Sign in to continue.</p>
           </div>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 180" fill="none" role="img" aria-label="Nationwide">
+  <g transform="translate(78 18)">
+    <rect x="8" y="58" width="22" height="34" rx="3" fill="#8B1A1A"/>
+    <rect x="42" y="36" width="22" height="56" rx="3" fill="#8B1A1A"/>
+    <rect x="76" y="12" width="22" height="80" rx="3" fill="#8B1A1A"/>
+    <path d="M4 78 L38 48 L62 60 L108 14" stroke="#8B1A1A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M90 14 L108 14 L108 32" stroke="#8B1A1A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="140" y="150" text-anchor="middle" fill="#8B1A1A" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="28" font-weight="800" letter-spacing="3">NATIONWIDE</text>
+</svg>

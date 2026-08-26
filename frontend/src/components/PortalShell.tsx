@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { BrandLogo } from "@/components/BrandLogo";
 import { api } from "@/lib/api";
 import { clearSession, getSession, type Session } from "@/lib/auth";
 
@@ -54,14 +55,9 @@ export function PortalShell({ title, subtitle, children }: Props) {
         <div className="portal-header-inner">
           <div className="portal-header-text">
             <div className="header-logo-row">
-              <div className="header-logo" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <path d="M12 3l7 3.2v5.4c0 4.6-3 8.5-7 9.9-4-1.4-7-5.3-7-9.9V6.2L12 3z" />
-                  <path d="M9.2 12.1l1.9 1.9 3.7-3.8" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
+              <BrandLogo variant="full" tone="brand" className="header-brand-wordmark" priority />
               <div>
-                <p className="brand-kicker">VAT Submission Portal</p>
+                <p className="brand-kicker">Submission Portal</p>
                 <h1>{title}</h1>
                 {subtitle && <p>{subtitle}</p>}
               </div>
