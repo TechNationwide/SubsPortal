@@ -144,11 +144,16 @@ def _clean_phone(phone: str) -> str:
 _CATEGORY_BANK_STATEMENT = 1
 _CATEGORY_APPLICATION = 5
 
-# Channel ApplicationTypes enum (confirmed against their live API):
+# Channel ApplicationTypes enum (confirmed against their live API / swagger):
 # 1  = New
 # 25 = Renewal Concurrent  (old Zoho Send_Lead_to_Channel button hardcoded this)
 # Keith / Channel asked that portal submissions go out as New, not Renewal Concurrent.
 _APPLICATION_TYPE_NEW = 1
+
+# Channel EquipmentType Id 8 = "Other" (from GetEquipmentTypesInfo). Used for
+# working-capital style New apps that still require at least one Equipment row
+# before /application/end will finalize.
+_EQUIPMENT_TYPE_OTHER = 8
 
 
 def submit_application(
@@ -158,15 +163,14 @@ def submit_application(
     bank_statement_files: list[tuple[str, bytes]],
     application_file: tuple[str, bytes] | None = None,
 ) -> dict[str, Any]:
-    """Runs the full 5-call sequence in one shot: start application, add
-    each file, add business (deal), add contact (owner), end (finalize).
+    """Runs the full Channel sequence: start, files, business, contact,
+    equipment, end (finalize).
 
     Per Channel's own API doc: "having at least one file with the Category
     of 'Bank Statement' and a file with the Category of 'Application' is
     required to submit the application" - Category 1 = Bank Statement,
-    Category 5 = Application. Both this module and the reference Zoho
-    function previously sent every file as Category 1, including the
-    application document - confirmed wrong against the real doc."""
+    Category 5 = Application. New applications also require at least one
+    Equipment row via /application/addequipment before /application/end."""
     if not bank_statement_files:
         raise ValueError("Channel requires at least one bank statement file to submit an application.")
     if application_file is None:
@@ -227,11 +231,6 @@ def submit_application(
             "BusinessEmail": owner.get("email", ""),
             "OpportunityComments": "",
             "Website": "",
-            # "Use of Funds" and address verification are confirmed (by the
-            # client checking Channel's own API field list) to not exist as
-            # API fields at all - they're manual-only fields completed in
-            # Channel's portal after the API creates the record. That's the
-            # entire explanation for applications landing as a draft.
             "BusinessType": business_type_code,
             "InBusinessSince": business.get("business_start_date", ""),
             "Address": [address, billing_address],
@@ -265,11 +264,48 @@ def submit_application(
     if not _is_success(contact_resp.get("Response")) or contact_resp.get("Errors") is not None:
         raise RuntimeError(f"Channel addcontact failed: {json.dumps(contact_resp, indent=2)}")
 
-    # The reference Zoho function stops at addcontact and never calls this -
-    # that's exactly why every prior submission (both Zoho's and ours) sat
-    # as a draft. This is the actual finalize step: it hands the
-    # application to Channel's internal review team and moves its status
-    # from draft to "ReadyForReview".
+    # New (ApplicationTypes=1) apps reject /application/end with
+    # "'Equipments' must not be empty" unless at least one equipment row
+    # is posted first. Channel's Equipment.Address is required (their
+    # validator Counts it). Schema: /v2/swagger Equipment definition.
+    equipment_cost = loan.get("requested_amount") or 0
+    try:
+        equipment_cost = float(equipment_cost)
+    except (TypeError, ValueError):
+        equipment_cost = 0.0
+    equipment_description = (loan.get("loan_purpose") or "").strip() or "Working Capital"
+    equipment_body = {
+        "Request": {
+            "Description": equipment_description,
+            "Quantity": 1,
+            "Cost": equipment_cost,
+            "Condition": "New",
+            "VendorName": "N/A",
+            "SerialNumbers": "N/A",
+            "Make": "N/A",
+            "Model": equipment_description,
+            "IsTitled": False,
+            "EquipmentType": _EQUIPMENT_TYPE_OTHER,
+            "Address": [
+                {
+                    "Street1": business.get("billing_street", ""),
+                    "City": business.get("billing_city", ""),
+                    "State": business.get("billing_state", ""),
+                    "ZipCode5": business.get("billing_postal_code", ""),
+                    "IsVerified": True,
+                }
+            ],
+        }
+    }
+    _, raw, content_type = _request(
+        "POST", f"/application/addequipment/{application_id}?api-version=2.0", body=equipment_body
+    )
+    equipment_resp = json.loads(raw)
+    if not _is_success(equipment_resp.get("Response")) or equipment_resp.get("Errors") is not None:
+        raise RuntimeError(f"Channel addequipment failed: {json.dumps(equipment_resp, indent=2)}")
+
+    # Finalize: hands the application to Channel's internal review team and
+    # moves status from draft to "ReadyForReview".
     _, raw, content_type = _request("POST", f"/application/end/{application_id}?api-version=2.0", body={})
     end_resp = json.loads(raw)
     if not _is_success(end_resp.get("Response")) or end_resp.get("Errors") is not None:
