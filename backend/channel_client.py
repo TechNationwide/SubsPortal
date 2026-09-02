@@ -144,6 +144,12 @@ def _clean_phone(phone: str) -> str:
 _CATEGORY_BANK_STATEMENT = 1
 _CATEGORY_APPLICATION = 5
 
+# Channel ApplicationTypes enum (confirmed against their live API):
+# 1  = New
+# 25 = Renewal Concurrent  (old Zoho Send_Lead_to_Channel button hardcoded this)
+# Keith / Channel asked that portal submissions go out as New, not Renewal Concurrent.
+_APPLICATION_TYPE_NEW = 1
+
 
 def submit_application(
     business: dict[str, Any],
@@ -168,7 +174,7 @@ def submit_application(
     owner = owners[0] if owners else {}
     user_email = os.getenv("CHANNEL_USER_EMAIL") or ""
 
-    start_body = {"Request": {"UserEmailAddress": user_email, "ApplicationTypes": [25]}}
+    start_body = {"Request": {"UserEmailAddress": user_email, "ApplicationTypes": [_APPLICATION_TYPE_NEW]}}
     _, raw, content_type = _request("POST", "/application/start?api-version=2.0", body=start_body)
     try:
         start_data = json.loads(raw)
