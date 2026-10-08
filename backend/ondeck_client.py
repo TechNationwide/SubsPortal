@@ -30,19 +30,50 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+from partner_industry import validate_industry_for_ondeck
+
 DEFAULT_BASE = "https://stagingpartners.ondeckcapital.com/api"
 
+# Portal + Zoho picklist labels → OnDeck legalEntity enums.
+# "Partnership" (portal dropdown) must map to GP — previously fell through to
+# UNKNOWN. Full state names / short EIN/phone/SSN/ZIP also used to be sent
+# half-cleaned and can make OnDeck return an opaque HTTP 500 "System error."
 _ENTITY_TYPE_MAP = {
     "sole proprietorship": "SP",
+    "sole proprietor": "SP",
     "sole prop": "SP",
     "llc": "LLC",
     "corporation": "CORP",
     "corp": "CORP",
+    "c-corp": "CORP",
+    "c corp": "CORP",
+    "s-corp": "CORP",
+    "s corp": "CORP",
+    "partnership": "GP",
     "general partnership": "GP",
     "limited partnership": "LP",
     "llp": "LLP",
     "trust": "TRST",
 }
+
+_STATE_NAME_TO_CODE = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR", "california": "CA",
+    "colorado": "CO", "connecticut": "CT", "delaware": "DE", "district of columbia": "DC",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+    "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY", "louisiana": "LA",
+    "maine": "ME", "maryland": "MD", "massachusetts": "MA", "michigan": "MI",
+    "minnesota": "MN", "mississippi": "MS", "missouri": "MO", "montana": "MT",
+    "nebraska": "NE", "nevada": "NV", "new hampshire": "NH", "new jersey": "NJ",
+    "new mexico": "NM", "new york": "NY", "north carolina": "NC", "north dakota": "ND",
+    "ohio": "OH", "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
+    "rhode island": "RI", "south carolina": "SC", "south dakota": "SD", "tennessee": "TN",
+    "texas": "TX", "utah": "UT", "vermont": "VT", "virginia": "VA", "washington": "WA",
+    "west virginia": "WV", "wisconsin": "WI", "wyoming": "WY",
+}
+
+_US_STATE_CODES = frozenset(_STATE_NAME_TO_CODE.values()) | {"DC"}
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_US_DATE_RE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
 
 
 def _base_url() -> str:
@@ -174,9 +205,18 @@ def _request(
         print("[OnDeck] Response body:")
         print(_format_response_body(err_body, resp_content_type))
         print("=" * 72 + "\n")
-        raise RuntimeError(
-            f"OnDeck API {exc.code}:\n{_format_response_body(err_body, resp_content_type)}"
-        ) from exc
+        formatted = _format_response_body(err_body, resp_content_type)
+        # OnDeck's generic 500 body is not actionable — say so explicitly so
+        # the portal toast is not mistaken for a portal crash.
+        if exc.code >= 500 and "system error" in formatted.lower():
+            raise RuntimeError(
+                f"OnDeck API {exc.code}: their server returned a generic "
+                f'"System error." (not a portal failure). Retry once; if it '
+                f"keeps failing on this deal only, check EIN/SSN/phone/ZIP/"
+                f"state/dates on the form — incomplete values often trigger this.\n"
+                f"{formatted}"
+            ) from exc
+        raise RuntimeError(f"OnDeck API {exc.code}:\n{formatted}") from exc
     except URLError as exc:
         print(f"[OnDeck] <<< UNREACHABLE {method} {path}")
         print(f"[OnDeck] Error: {exc}")
@@ -184,60 +224,208 @@ def _request(
         raise RuntimeError(f"OnDeck API unreachable ({method} {path}): {exc}") from exc
 
 
-def _address(street: str, city: str, state: str, postal_code: str) -> dict[str, str]:
+def _field_error(field: str, reason: str) -> ValueError:
+    """Frontend toast shows this string as-is — keep field name first."""
+    return ValueError(f"OnDeck — {field}: {reason}")
+
+
+def _normalize_state(value: Any, *, field: str) -> str:
+    """OnDeck requires exactly 2-char state. Full names from Zoho used to be
+    silently truncated (Virginia → VI), which is deal-specific poison."""
+    raw = str(value or "").strip()
+    if not raw:
+        raise _field_error(field, "required — use a 2-letter code (e.g. VA).")
+    lower = raw.lower()
+    if lower in _STATE_NAME_TO_CODE:
+        return _STATE_NAME_TO_CODE[lower]
+    code = raw.upper()
+    if len(code) == 2 and code in _US_STATE_CODES:
+        return code
+    raise _field_error(
+        field,
+        f'"{raw}" is not a valid US state. Use a 2-letter code (e.g. VA) or the full name.',
+    )
+
+
+def _normalize_zip(value: Any, *, field: str) -> str:
+    digits = re.sub(r"[^0-9]", "", str(value or ""))
+    if len(digits) >= 5:
+        return digits[:5]
+    raise _field_error(field, f"must be exactly 5 digits (got {len(digits) or 0}).")
+
+
+def _normalize_date(value: Any, *, field: str, required: bool = False) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        if required:
+            raise _field_error(field, "required (YYYY-MM-DD).")
+        return ""
+    if _ISO_DATE_RE.match(raw):
+        return raw
+    match = _US_DATE_RE.match(raw)
+    if match:
+        month, day, year = match.groups()
+        return f"{year}-{month}-{day}"
+    raise _field_error(field, f'must be YYYY-MM-DD (got "{raw}").')
+
+
+def _digits_exact(value: Any, length: int, *, field: str, required: bool = False) -> str:
+    digits = re.sub(r"[^0-9]", "", str(value or ""))
+    if not digits:
+        if required:
+            raise _field_error(field, f"required ({length} digits).")
+        return ""
+    if len(digits) != length:
+        raise _field_error(
+            field,
+            f"must be exactly {length} digits (got {len(digits)}). Fix this field before retrying.",
+        )
+    return digits
+
+
+def _address(
+    street: str,
+    city: str,
+    state: str,
+    postal_code: str,
+    *,
+    street_field: str,
+    city_field: str,
+    state_field: str,
+    zip_field: str,
+) -> dict[str, str]:
+    street = str(street or "").strip()
+    city = str(city or "").strip()
+    if not street:
+        raise _field_error(street_field, "required.")
+    if not city:
+        raise _field_error(city_field, "required.")
     return {
         "addressLine1": street[:64],
         "city": city[:64],
-        "state": state[:2].upper(),
-        "zipCode": re.sub(r"[^0-9]", "", postal_code)[:5],
+        "state": _normalize_state(state, field=state_field),
+        "zipCode": _normalize_zip(postal_code, field=zip_field),
     }
 
 
-def _clean_phone10(value: Any) -> str:
+def _clean_phone10(value: Any, *, field: str, required: bool = False) -> str:
     """Strip to digits; drop leading NANP country code 1 (matches Zoho Dev2)."""
     digits = re.sub(r"[^0-9]", "", str(value or ""))
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
-    return digits[:10]
+    if not digits:
+        if required:
+            raise _field_error(field, "required (10 digits).")
+        return ""
+    if len(digits) != 10:
+        raise _field_error(
+            field,
+            f"must be exactly 10 digits (got {len(digits)}). Fix this field before retrying.",
+        )
+    return digits
+
+
+def _map_legal_entity(value: Any) -> str:
+    key = (value or "").strip().lower()
+    mapped = _ENTITY_TYPE_MAP.get(key)
+    if mapped:
+        return mapped
+    if not key:
+        raise _field_error("Entity type", "required.")
+    # Still send UNKNOWN so odd Zoho values do not hard-block, but warn via
+    # a known enum — OnDeck accepts UNKNOWN.
+    return "UNKNOWN"
+
+
+def _naics_digits(value: Any) -> str:
+    validate_industry_for_ondeck(value)
+    return re.sub(r"\D", "", str(value or "").strip())
 
 
 def _build_business(business: dict[str, Any], loan_purpose: str) -> dict[str, Any]:
-    return {
-        "name": business["legal_name"][:120],
-        "doingBusinessAs": (business.get("dba") or "")[:225],
-        "phone": _clean_phone10(business.get("phone", "")),
-        "taxID": re.sub(r"[^0-9]", "", business.get("tax_id", ""))[:9],
-        "legalEntity": _ENTITY_TYPE_MAP.get((business.get("entity_type") or "").strip().lower(), "UNKNOWN"),
-        "businessInceptionDate": business.get("business_start_date", ""),
-        "industryNAICSCode": business.get("industry_naics_code", ""),
-        "loanPurpose": loan_purpose[:50],
+    phone = _clean_phone10(business.get("phone", ""), field="Business phone", required=True)
+    tax_id = _digits_exact(
+        business.get("tax_id"), 9, field="Tax ID (EIN)", required=True
+    )
+    inception = _normalize_date(
+        business.get("business_start_date"), field="Business start date", required=True
+    )
+    naics = _naics_digits(business.get("industry_naics_code"))
+    name = str(business.get("legal_name") or "").strip()
+    if not name:
+        raise _field_error("Legal business name", "required.")
+    if not str(business.get("entity_type") or "").strip():
+        raise _field_error("Entity type", "required.")
+    payload: dict[str, Any] = {
+        "name": name[:120],
+        "phone": phone,
+        "taxID": tax_id,
+        "legalEntity": _map_legal_entity(business.get("entity_type")),
+        "businessInceptionDate": inception,
         "address": _address(
             business.get("billing_street", ""),
             business.get("billing_city", ""),
             business.get("billing_state", ""),
             business.get("billing_postal_code", ""),
+            street_field="Billing street",
+            city_field="Billing city",
+            state_field="Billing state",
+            zip_field="Billing ZIP",
         ),
     }
+    dba = (business.get("dba") or "").strip()
+    if dba:
+        payload["doingBusinessAs"] = dba[:225]
+    if naics:
+        payload["industryNAICSCode"] = naics
+    purpose = (loan_purpose or "").strip()
+    if purpose:
+        payload["loanPurpose"] = purpose[:50]
+    return payload
 
 
-def _build_owner(owner: dict[str, Any]) -> dict[str, Any]:
-    name = f"{owner['first_name']} {owner['last_name']}".strip()
-    phone = _clean_phone10(owner.get("phone", ""))
-    return {
+def _build_owner(owner: dict[str, Any], *, index: int) -> dict[str, Any]:
+    suffix = f" (owner {index})" if index > 1 else ""
+    first = str(owner.get("first_name") or "").strip()
+    last = str(owner.get("last_name") or "").strip()
+    if not first:
+        raise _field_error(f"Owner first name{suffix}", "required.")
+    if not last:
+        raise _field_error(f"Owner last name{suffix}", "required.")
+    name = f"{first} {last}".strip()
+    phone = _clean_phone10(owner.get("phone", ""), field=f"Owner phone{suffix}", required=True)
+    dob = _normalize_date(
+        owner.get("date_of_birth"), field=f"Owner date of birth{suffix}", required=True
+    )
+    ssn = _digits_exact(owner.get("ssn"), 9, field=f"Owner SSN{suffix}", required=True)
+    email = (owner.get("email") or "").strip()
+    if not email:
+        raise _field_error(f"Owner email{suffix}", "required.")
+    ownership = int(float(owner.get("ownership_percentage") or 0))
+    if ownership < 0 or ownership > 100:
+        raise _field_error(
+            f"Owner ownership %{suffix}", "must be between 0 and 100."
+        )
+    payload: dict[str, Any] = {
         "name": name,
-        "email": (owner.get("email") or "")[:80],
-        "dateOfBirth": owner.get("date_of_birth", ""),
-        "ssn": re.sub(r"[^0-9]", "", owner.get("ssn", ""))[:9],
+        "email": email[:80],
+        "dateOfBirth": dob,
+        "ssn": ssn,
         "cellPhoneNumber": phone,
         "homePhone": phone,
-        "ownershipPercentage": int(owner.get("ownership_percentage") or 0),
+        "ownershipPercentage": ownership,
         "homeAddress": _address(
             owner.get("mailing_street", ""),
             owner.get("mailing_city", ""),
             owner.get("mailing_state", ""),
             owner.get("mailing_postal_code", ""),
+            street_field=f"Owner mailing street{suffix}",
+            city_field=f"Owner mailing city{suffix}",
+            state_field=f"Owner mailing state{suffix}",
+            zip_field=f"Owner mailing ZIP{suffix}",
         ),
     }
+    return payload
 
 
 def submit_application(
@@ -248,33 +436,47 @@ def submit_application(
     Raises ValueError (no network call made) if combined owner ownership is
     below 50%, since OnDeck auto-declines those applications — no sense
     burning a real submission on a guaranteed decline once live testing
-    starts.
+    starts. Also validates phone/EIN/SSN/ZIP/state/dates before calling
+    OnDeck so incomplete deal data surfaces as a clear 400 instead of their
+    opaque HTTP 500 "System error."
     """
+    if not owners:
+        raise _field_error("Owners", "at least one owner is required.")
+    if len(owners) > 2:
+        raise _field_error("Owners", "OnDeck accepts at most 2 owners per application.")
+
     total_ownership = sum(float(o.get("ownership_percentage") or 0) for o in owners)
     if total_ownership < 50:
-        raise ValueError(
-            f"Combined owner ownership is {total_ownership:.0f}% — OnDeck requires "
-            "at least 50% combined ownership among listed owners or the application "
-            "will be auto-declined. Add another owner or correct the percentages."
+        raise _field_error(
+            "Owner ownership %",
+            f"combined ownership is {total_ownership:.0f}% — OnDeck needs at least 50% "
+            "or the application is auto-declined.",
         )
 
     revenue = loan.get("average_monthly_revenue")
     avg_balance = loan.get("average_daily_balance")
-    if revenue is None or avg_balance is None:
-        raise ValueError(
-            "OnDeck requires both average monthly revenue and average daily balance "
-            "for a full application submission."
-        )
+    if revenue is None:
+        raise _field_error("Average monthly revenue", "required for OnDeck.")
+    if avg_balance is None:
+        raise _field_error("Average daily balance", "required for OnDeck.")
 
-    payload = {
+    self_reported: dict[str, Any] = {
+        "revenue": revenue,
+        "averageBalance": avg_balance,
+    }
+    requested = loan.get("requested_amount")
+    if requested is not None:
+        self_reported["desiredLoanAmount"] = requested
+    term = loan.get("desired_term_months")
+    if term is not None:
+        # Omit null — Zoho Dev2 never sends this field; some OnDeck builds
+        # mishandle JSON null on integer optionals as a 500 System error.
+        self_reported["desiredLoanTerm"] = int(term)
+
+    payload: dict[str, Any] = {
         "business": _build_business(business, loan.get("loan_purpose", "")),
-        "owners": [_build_owner(o) for o in owners],
-        "selfReported": {
-            "revenue": revenue,
-            "averageBalance": avg_balance,
-            "desiredLoanAmount": loan.get("requested_amount"),
-            "desiredLoanTerm": loan.get("desired_term_months"),
-        },
+        "owners": [_build_owner(o, index=i + 1) for i, o in enumerate(owners)],
+        "selfReported": self_reported,
     }
     if external_customer_id:
         # Lets OnDeck correlate a submission back to our own record if it

@@ -1,6 +1,7 @@
 "use client";
 
 import type { BusinessDetails, LoanDetails, OwnerDetails } from "@/lib/types";
+import { ECG_INDUSTRIES } from "@/lib/partners";
 
 export const emptyBusinessDetails = (): BusinessDetails => ({
   legal_name: "",
@@ -11,6 +12,7 @@ export const emptyBusinessDetails = (): BusinessDetails => ({
   state_of_formation: "",
   business_start_date: "",
   industry_naics_code: "",
+  ecg_industry: "",
   billing_street: "",
   billing_city: "",
   billing_state: "",
@@ -167,7 +169,23 @@ export function BusinessOwnerLoanForm({
             id="bizNaics"
             value={business.industry_naics_code}
             onChange={(e) => onBusinessChange({ ...business, industry_naics_code: e.target.value })}
+            placeholder="e.g. 561730 — not the state"
           />
+        </div>
+        <div className="field">
+          <label htmlFor="bizEcgIndustry">Expansion industry</label>
+          <select
+            id="bizEcgIndustry"
+            value={business.ecg_industry}
+            onChange={(e) => onBusinessChange({ ...business, ecg_industry: e.target.value })}
+          >
+            <option value="">Select if submitting to Expansion</option>
+            {ECG_INDUSTRIES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

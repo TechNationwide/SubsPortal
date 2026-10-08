@@ -184,24 +184,109 @@ def get_funders() -> list[dict[str, Any]]:
     return result
 
 
+def _funder_content(f: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": f.get("name", ""),
+        "email": f.get("email", ""),
+        "cc_members": f.get("cc_members", []) or [],
+        "brands": sorted(int(b) for b in (f.get("brands") or []) if isinstance(b, int) and b >= 0),
+    }
+
+
+def _set_funder_brands(cur, funder_id: int, brand_indices: list[int], brand_ids: list[int]) -> None:
+    cur.execute("DELETE FROM funder_brands WHERE funder_id=%s", (funder_id,))
+    for idx in brand_indices:
+        if isinstance(idx, int) and 0 <= idx < len(brand_ids):
+            cur.execute(
+                "INSERT INTO funder_brands (funder_id, brand_id) VALUES (%s,%s)",
+                (funder_id, brand_ids[idx]),
+            )
+
+
 def save_funders(funders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Incremental save — never wipe+rewrite the whole table.
+
+    The old DELETE-all + INSERT-all path raced under concurrent creates and
+    ballooned ~53 funders into tens of thousands of duplicates.
+    """
     with _cursor() as cur:
+        # Serialize funder writes so concurrent create/update/delete cannot race.
+        cur.execute("SELECT pg_advisory_xact_lock(%s)", (87201401,))
+
         cur.execute("SELECT id FROM brands ORDER BY id")
         brand_ids = [r["id"] for r in cur.fetchall()]
 
-        cur.execute("DELETE FROM funders")  # cascades funder_brands
-        for f in funders:
+        cur.execute("SELECT id, name, email, cc_members FROM funders ORDER BY id")
+        current_rows = [dict(r) for r in cur.fetchall()]
+        current_ids = [r["id"] for r in current_rows]
+
+        cur.execute("SELECT funder_id, brand_id FROM funder_brands")
+        by_funder: dict[int, list[int]] = {}
+        for row in cur.fetchall():
+            by_funder.setdefault(row["funder_id"], []).append(row["brand_id"])
+
+        brand_index = {bid: i for i, bid in enumerate(brand_ids)}
+        current_content: list[dict[str, Any]] = []
+        for r in current_rows:
+            indices = sorted(
+                brand_index[bid]
+                for bid in by_funder.get(r["id"], [])
+                if bid in brand_index
+            )
+            current_content.append(
+                {
+                    "name": r["name"],
+                    "email": r["email"],
+                    "cc_members": r["cc_members"] or [],
+                    "brands": indices,
+                }
+            )
+
+        incoming = [_funder_content(f) for f in funders]
+        n_old, n_new = len(current_ids), len(incoming)
+
+        def _write_row(funder_id: int, payload: dict[str, Any]) -> None:
+            cur.execute(
+                "UPDATE funders SET name=%s, email=%s, cc_members=%s WHERE id=%s",
+                (
+                    payload["name"],
+                    payload["email"],
+                    psycopg2.extras.Json(payload["cc_members"]),
+                    funder_id,
+                ),
+            )
+            _set_funder_brands(cur, funder_id, payload["brands"], brand_ids)
+
+        def _insert_row(payload: dict[str, Any]) -> None:
             cur.execute(
                 "INSERT INTO funders (name, email, cc_members) VALUES (%s,%s,%s) RETURNING id",
-                (f["name"], f.get("email", ""), psycopg2.extras.Json(f.get("cc_members", []))),
+                (
+                    payload["name"],
+                    payload["email"],
+                    psycopg2.extras.Json(payload["cc_members"]),
+                ),
             )
             funder_id = cur.fetchone()["id"]
-            for idx in f.get("brands", []):
-                if isinstance(idx, int) and 0 <= idx < len(brand_ids):
-                    cur.execute(
-                        "INSERT INTO funder_brands (funder_id, brand_id) VALUES (%s,%s)",
-                        (funder_id, brand_ids[idx]),
-                    )
+            _set_funder_brands(cur, funder_id, payload["brands"], brand_ids)
+
+        if n_new == n_old + 1 and current_content == incoming[:n_old]:
+            _insert_row(incoming[-1])
+        elif n_new == n_old - 1:
+            idx = next((i for i in range(n_new) if current_content[i] != incoming[i]), n_new)
+            cur.execute("DELETE FROM funders WHERE id=%s", (current_ids[idx],))
+        elif n_new == n_old:
+            for i in range(n_new):
+                if current_content[i] != incoming[i]:
+                    _write_row(current_ids[i], incoming[i])
+        else:
+            # Unexpected shape — update overlap, drop extras, append new.
+            for i in range(min(n_old, n_new)):
+                if current_content[i] != incoming[i]:
+                    _write_row(current_ids[i], incoming[i])
+            for extra_id in current_ids[n_new:]:
+                cur.execute("DELETE FROM funders WHERE id=%s", (extra_id,))
+            for payload in incoming[n_old:]:
+                _insert_row(payload)
     return funders
 
 
@@ -455,7 +540,35 @@ def list_partner_submission_events(submission_id: int) -> list[dict[str, Any]]:
         return [dict(r) for r in cur.fetchall()]
 
 
-_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac")
+_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac", "ecg")
+_ECG_CONSTRAINT_READY = False
+
+
+def ensure_ecg_funder_constraint() -> None:
+    """Widen the partner-key checks so Expansion rows can be stored.
+
+    schema.sql uses IF NOT EXISTS, so an existing database keeps the old
+    check until this runs. Safe to call more than once; no other funder
+    rows are rewritten.
+    """
+    global _ECG_CONSTRAINT_READY
+    if _ECG_CONSTRAINT_READY:
+        return
+    allowed = "('ondeck','can','idea','channel','peac','ecg')"
+    with _cursor() as cur:
+        cur.execute("ALTER TABLE partner_submissions DROP CONSTRAINT IF EXISTS partner_submissions_funder_key_check")
+        cur.execute(
+            "ALTER TABLE partner_submissions "
+            f"ADD CONSTRAINT partner_submissions_funder_key_check CHECK (funder_key IN {allowed})"
+        )
+        cur.execute(
+            "ALTER TABLE partner_brand_assignments DROP CONSTRAINT IF EXISTS partner_brand_assignments_funder_key_check"
+        )
+        cur.execute(
+            "ALTER TABLE partner_brand_assignments "
+            f"ADD CONSTRAINT partner_brand_assignments_funder_key_check CHECK (funder_key IN {allowed})"
+        )
+    _ECG_CONSTRAINT_READY = True
 
 
 def get_partner_brand_assignments() -> dict[str, dict[str, Any] | None]:
@@ -485,6 +598,8 @@ def get_partner_brand_assignments() -> dict[str, dict[str, Any] | None]:
 
 
 def set_partner_brand_assignment(funder_key: str, brand_index: int | None) -> None:
+    if funder_key == "ecg":
+        ensure_ecg_funder_constraint()
     brand_id: int | None = None
     if brand_index is not None:
         with _cursor() as cur:

@@ -29,6 +29,8 @@ export default function FundersPage() {
   const [partnerBrands, setPartnerBrands] = useState<PartnerBrandAssignments>({});
   const [savingPartnerKey, setSavingPartnerKey] = useState<string | null>(null);
 
+  const [saving, setSaving] = useState(false);
+
   const load = useCallback(async () => {
     const [fundersRes, brandsRes, partnerBrandsRes] = await Promise.all([
       api.getFunders(),
@@ -119,6 +121,7 @@ export default function FundersPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (saving) return;
     if (!form.name.trim()) {
       setToast("Funder name is required.");
       return;
@@ -132,6 +135,7 @@ export default function FundersPage() {
       cc_members,
       brands: [...form.brands].sort((a, b) => a - b),
     };
+    setSaving(true);
     try {
       if (editingIndex === null) {
         await api.createFunder(payload);
@@ -144,6 +148,8 @@ export default function FundersPage() {
       await load();
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -345,8 +351,12 @@ export default function FundersPage() {
               <button type="button" className="btn btn-secondary" onClick={() => setModalOpen(false)}>
                 Cancel
               </button>
-              <button type="submit" form="funderForm" className="btn btn-primary">
-                {editingIndex === null ? "Create Funder" : "Save Changes"}
+              <button type="submit" form="funderForm" className="btn btn-primary" disabled={saving}>
+                {saving
+                  ? "Saving…"
+                  : editingIndex === null
+                    ? "Create Funder"
+                    : "Save Changes"}
               </button>
             </div>
           </>

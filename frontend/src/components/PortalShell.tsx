@@ -20,6 +20,8 @@ const NAV = [
 
 const ADMIN_ONLY_NAV_IDS = new Set(["teams", "brands", "funders", "users", "access"]);
 
+const SOLUTION_DOC = { id: "architecture", label: "Solution Document", href: "/architecture" };
+
 type Props = {
   title: string;
   subtitle?: string;
@@ -75,10 +77,20 @@ export function PortalShell({ title, subtitle, children }: Props) {
             </nav>
           </div>
           <div className="user-bar">
-            <span className="user-pill">{session?.email || "user"}</span>
-            <button type="button" className="btn btn-ghost" onClick={logout}>
-              Sign Out
-            </button>
+            <div className="user-bar-row">
+              <span className="user-pill">{session?.email || "user"}</span>
+              <button type="button" className="btn btn-ghost" onClick={logout}>
+                Sign Out
+              </button>
+            </div>
+            {session?.role === "admin" && (
+              <Link
+                href={SOLUTION_DOC.href}
+                className={`site-nav-link solution-doc-link${pathname === SOLUTION_DOC.href ? " active" : ""}`}
+              >
+                {SOLUTION_DOC.label}
+              </Link>
+            )}
           </div>
         </div>
       </header>

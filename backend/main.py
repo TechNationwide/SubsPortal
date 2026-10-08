@@ -17,13 +17,14 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 import psycopg2
-from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 import can_client
 import channel_client
+import ecg_client
 import idea_client
 import ondeck_client
 import peac_client
@@ -56,6 +57,7 @@ from db import (
     update_user,
     verify_login,
     create_partner_submission,
+    ensure_ecg_funder_constraint,
 )
 from email_client import send_email, sendgrid_configured
 from partner_models import (
@@ -107,7 +109,7 @@ app = FastAPI(title="VAT Portal API", version="1.0.0")
 
 
 def _push_partner_ids_to_zoho(lead_id: str, submission_id: int, fields: dict[str, Any]) -> str:
-    """Best-effort write of funder IDs / OnDeck stage onto the Zoho Lead.
+    """Best-effort write of funder IDs / status onto the Zoho Lead.
 
     Never fails the partner submit — the funder application already exists.
     """
@@ -153,6 +155,11 @@ def _partner_error(exc: Exception) -> HTTPException:
         "tax id",
         "taxid",
         "phone",
+        "ein",
+        "ssn",
+        "zip",
+        "state",
+        "system error",
         " api 400",
         '"success": false',
         '"status": "false"',
@@ -430,10 +437,15 @@ def list_funders(_user=Depends(require_auth)):
 
 @app.post("/api/funders")
 def create_funder(body: FunderBody, _admin=Depends(require_admin)):
+    payload = _funder_payload(body)
+    if not payload["name"]:
+        raise HTTPException(400, "Funder name is required.")
     funders = get_funders()
-    funders.append(_funder_payload(body))
+    if any(f["name"].strip().lower() == payload["name"].lower() for f in funders):
+        raise HTTPException(400, f'Funder "{payload["name"]}" already exists.')
+    funders.append(payload)
     save_funders(funders)
-    return {"ok": True, "data": funders, "index": len(funders) - 1}
+    return {"ok": True, "data": get_funders(), "index": len(funders) - 1}
 
 
 @app.put("/api/funders/{index}")
@@ -920,12 +932,13 @@ def partners_status(_user=Depends(require_auth)):
             "idea": idea_client.describe_integration(),
             "channel": channel_client.describe_integration(),
             "peac": peac_client.describe_integration(),
+            "ecg": ecg_client.describe_integration(),
             "zoho": zoho_client.describe_integration(),
         },
     }
 
 
-_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac")
+_PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac", "ecg")
 
 
 @app.get("/api/partners/brand-assignments")
@@ -991,9 +1004,17 @@ def ondeck_submit_application(
             external_customer_id=str(submission["id"]),
         )
     except ValueError as exc:
-        _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))
-        update_partner_submission(submission["id"], status="error", last_error=str(exc))
-        raise HTTPException(400, str(exc)) from exc
+        msg = str(exc)
+        _log_event(submission["id"], "ondeck_submit_application", False, None, msg)
+        update_partner_submission(submission["id"], status="error", last_error=msg)
+        # Structured detail so the Partners toast can show which form field failed.
+        field = ""
+        if msg.startswith("OnDeck — ") and ":" in msg:
+            field = msg.split("OnDeck — ", 1)[1].split(":", 1)[0].strip()
+        raise HTTPException(
+            400,
+            detail={"field": field, "message": msg, "funder": "ondeck"},
+        ) from exc
     except RuntimeError as exc:
         _log_event(submission["id"], "ondeck_submit_application", False, None, str(exc))
         update_partner_submission(submission["id"], status="error", last_error=str(exc))
@@ -1028,6 +1049,9 @@ def ondeck_send_documents(
     user=Depends(require_auth),
     _slot=Depends(partner_concurrency),
 ):
+    """Upload bank statements only. No application-document field — Step 4
+    app PDFs must never be sent to OnDeck (by product requirement).
+    """
     submission = _get_owned_submission(submission_id, user)
     # Checking external_id (not status) on purpose: a failed document upload
     # sets status to "error", and gating on status alone permanently locked
@@ -1095,6 +1119,10 @@ def can_create_application(
             # account happens to be logged in when the submit button is hit.
             rep_email="processing@ajnationwide.com",
         )
+    except ValueError as exc:
+        _log_event(submission["id"], "can_create_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
         _log_event(submission["id"], "can_create_application", False, None, str(exc))
         update_partner_submission(submission["id"], status="error", last_error=str(exc))
@@ -1500,6 +1528,205 @@ def idea_submission_status(submission_id: int, user=Depends(require_auth)):
         return {"ok": True, "data": idea_client.get_status(submission["external_id"])}
     except RuntimeError as exc:
         raise _partner_error(exc) from exc
+
+
+@app.post("/api/partners/ecg/submit-application")
+def ecg_submit_application(
+    body: PartnerSubmissionCreateBody,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
+    if not ecg_client.ecg_configured():
+        raise HTTPException(
+            503,
+            "Expansion Capital is not configured. Set ECG_AUTH_TOKEN and ECG_PARTNER_EMAIL in backend/.env.",
+        )
+    ensure_ecg_funder_constraint()
+    submission = create_partner_submission(
+        funder_key="ecg",
+        brand_name=body.brand_name,
+        deal_name=body.deal_name,
+        created_by_user_id=user["id"],
+        business_details=body.business.model_dump(),
+        owner_details=[o.model_dump() for o in body.owners],
+        loan_details=body.loan.model_dump(),
+        aquamark_job_id=body.aquamark_job_id,
+    )
+    rep_email = os.getenv("ECG_PARTNER_EMAIL") or ""
+    rep_name = (user.get("name") or "").strip() or (os.getenv("ECG_PARTNER_REP") or "")
+    try:
+        result = ecg_client.submit_application(
+            body.business.model_dump(),
+            [o.model_dump() for o in body.owners],
+            rep_name=rep_name,
+            rep_email=rep_email,
+        )
+    except ValueError as exc:
+        _log_event(submission["id"], "ecg_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        _log_event(submission["id"], "ecg_submit_application", False, None, str(exc))
+        update_partner_submission(submission["id"], status="error", last_error=str(exc))
+        raise _partner_error(exc) from exc
+
+    warning = result.get("owners_warning") or ""
+    _log_event(
+        submission["id"],
+        "ecg_submit_application",
+        True,
+        result.get("http_status") or 201,
+        f"submission_id={result['submission_id']}" + (f" owners_warning={warning}" if warning else ""),
+    )
+    updated = update_partner_submission(
+        submission["id"],
+        status="submitted",
+        external_id=result["submission_id"],
+        last_error=warning,
+    )
+    # Write Expansion_App_ID only here. Do NOT call ECG get_status on submit —
+    # that second upstream round-trip (plus notes) was pushing requests past
+    # Cloudflare's ~100s limit and showing "Connection lost" on every deal.
+    # Status → Zoho stays on the Check status button.
+    zoho_sync = _push_partner_ids_to_zoho(
+        body.zoho_lead_id,
+        submission["id"],
+        {"Expansion_App_ID": result["submission_id"]},
+    )
+    return {"ok": True, "data": updated, "owners_warning": warning, "zoho_sync": zoho_sync}
+
+
+@app.post("/api/partners/ecg/{submission_id}/send-documents")
+async def ecg_send_documents(
+    submission_id: int,
+    request: Request,
+    user=Depends(require_auth),
+    _slot=Depends(partner_concurrency),
+):
+    """Accept JSON (bank statements) or multipart (optional application PDF).
+
+    Bank-statement sends use application/json like OnDeck. The previous
+    Form-only endpoint often saw empty filenames (defaults) and returned
+    "At least one bank statement..." even when PDFs were attached in the UI.
+    """
+    from urllib.parse import unquote
+
+    submission = _get_owned_submission(submission_id, user)
+    if not submission.get("external_id"):
+        raise HTTPException(400, "Submit the application to Expansion before sending documents.")
+    if not ecg_client.ecg_configured():
+        raise HTTPException(503, "Expansion Capital is not configured.")
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    job_id = ""
+    filename_list: list[str] = []
+    application_document: UploadFile | None = None
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        job_id = str(form.get("job_id") or "").strip()
+        try:
+            filename_list = json.loads(str(form.get("filenames") or "[]"))
+        except json.JSONDecodeError:
+            raise HTTPException(400, "Invalid filenames JSON.") from None
+        if not isinstance(filename_list, list):
+            raise HTTPException(400, "filenames must be a JSON array.")
+        upload = form.get("application_document")
+        if upload is not None and hasattr(upload, "filename") and upload.filename:
+            application_document = upload  # type: ignore[assignment]
+    else:
+        try:
+            payload = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, "Expected JSON body with job_id and filenames.") from exc
+        body = SendDocumentsBody.model_validate(payload)
+        job_id = body.job_id
+        filename_list = list(body.filenames)
+
+    has_app = application_document is not None and bool(application_document.filename)
+    if not filename_list and not has_app:
+        raise HTTPException(400, "At least one bank statement or an application document is required.")
+
+    uploaded: list[dict[str, Any]] = []
+    try:
+        for name in filename_list:
+            if not job_id:
+                raise HTTPException(400, "job_id is required when sending bank statements.")
+            filename = Path(unquote(str(name))).name
+            data = _read_processed_file(job_id, filename)
+            try:
+                result = ecg_client.upload_document(
+                    submission["external_id"],
+                    filename,
+                    data,
+                    tag="Bank Statements",
+                    note="Bank statement from SubsPortal",
+                )
+                uploaded.append({"filename": filename, "tag": "Bank Statements", **result})
+            finally:
+                _release_memory(data)
+
+        if has_app:
+            app_filename = Path(application_document.filename).name
+            app_bytes = await application_document.read()
+            try:
+                app_result = ecg_client.upload_document(
+                    submission["external_id"],
+                    app_filename,
+                    app_bytes,
+                    tag="Application",
+                    note="Application document from SubsPortal",
+                )
+                uploaded.append({"filename": app_filename, "tag": "Application", **app_result})
+                _log_event(
+                    submission_id,
+                    "ecg_send_application_document",
+                    True,
+                    app_result.get("http_status"),
+                    json.dumps({"filename": app_filename, **app_result})[:2000],
+                )
+            finally:
+                _release_memory(app_bytes)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        _log_event(submission_id, "ecg_send_documents", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        _log_event(submission_id, "ecg_send_documents", False, None, str(exc))
+        update_partner_submission(submission_id, status="error", last_error=str(exc))
+        raise _partner_error(exc) from exc
+    _log_event(submission_id, "ecg_send_documents", True, 200, json.dumps(uploaded)[:2000])
+    updated = update_partner_submission(submission_id, status="docs_sent", last_error="")
+    return {"ok": True, "data": updated}
+
+
+@app.get("/api/partners/ecg/{submission_id}/status")
+def ecg_submission_status(
+    submission_id: int,
+    zoho_lead_id: str = "",
+    user=Depends(require_auth),
+):
+    submission = _get_owned_submission(submission_id, user)
+    if not submission.get("external_id"):
+        raise HTTPException(400, "Submit the application to Expansion before checking status.")
+    if not ecg_client.ecg_configured():
+        raise HTTPException(503, "Expansion Capital is not configured.")
+    try:
+        data = ecg_client.get_status(submission["external_id"])
+    except RuntimeError as exc:
+        raise _partner_error(exc) from exc
+    stage = str((data or {}).get("status") or "").strip()
+    _log_event(submission_id, "ecg_status", True, 200, stage[:300])
+    zoho_sync = ""
+    if stage:
+        zoho_sync = _push_partner_ids_to_zoho(
+            zoho_lead_id,
+            submission_id,
+            {"Expansion_App_Status": stage},
+        )
+    return {"ok": True, "data": data, "zoho_sync": zoho_sync}
 
 
 class ZohoBusinessBody(BaseModel):

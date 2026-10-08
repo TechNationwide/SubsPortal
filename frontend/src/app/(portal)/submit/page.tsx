@@ -5,6 +5,7 @@ import { PortalShell } from "@/components/PortalShell";
 import { BrandSearchSelect } from "@/components/BrandSearchSelect";
 import { FunderMultiSelect } from "@/components/FunderMultiSelect";
 import { Modal } from "@/components/Modal";
+import { TeamSearchSelect } from "@/components/TeamSearchSelect";
 import { api, authHeaders, downloadUrl } from "@/lib/api";
 import type { Brand, Funder, ProcessedFile, Team } from "@/lib/types";
 
@@ -615,21 +616,14 @@ export default function SubmitDealPage() {
               <label htmlFor="dealName">Deal name</label>
               <input id="dealName" value={dealName} onChange={(e) => setDealName(e.target.value)} />
             </div>
-            <div className="field">
-              <label htmlFor="teamSelect">Team (CC on emails, optional)</label>
-              <select
-                id="teamSelect"
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-              >
-                <option value="">No team — skip CC</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <TeamSearchSelect
+              teams={teams}
+              selectedId={teamId}
+              onSelect={setTeamId}
+              id="teamSelect"
+              label="Team (CC on emails, optional)"
+              hint="Search by team name, lead, or member email."
+            />
           </div>
           {selectedTeam && (
             <div className="aquamark-team-cc-preview">

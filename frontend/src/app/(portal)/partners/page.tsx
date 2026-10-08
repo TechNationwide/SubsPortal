@@ -11,7 +11,7 @@ import {
 } from "@/components/BusinessOwnerLoanForm";
 import { PartnerActionCard } from "@/components/PartnerActionCard";
 import { api, authHeaders, downloadUrl } from "@/lib/api";
-import { PARTNER_ROSTER } from "@/lib/partners";
+import { ECG_INDUSTRIES, PARTNER_ROSTER } from "@/lib/partners";
 import type {
   Brand,
   BusinessDetails,
@@ -612,15 +612,112 @@ export default function ApiPartnersPage() {
     if (key === "ondeck") {
       const totalOwnership = owners.reduce((sum, o) => sum + (Number(o.ownership_percentage) || 0), 0);
       if (totalOwnership < 50) {
-        return `OnDeck requires at least 50% combined owner ownership (currently ${totalOwnership.toFixed(0)}%) — it auto-declines below that.`;
+        return `OnDeck — Owner ownership %: combined ownership is ${totalOwnership.toFixed(0)}% — OnDeck needs at least 50% or the application is auto-declined.`;
       }
-      if (loan.average_monthly_revenue == null || loan.average_daily_balance == null) {
-        return "OnDeck requires both average monthly revenue and average daily balance.";
+      if (loan.average_monthly_revenue == null) {
+        return "OnDeck — Average monthly revenue: required for OnDeck.";
+      }
+      if (loan.average_daily_balance == null) {
+        return "OnDeck — Average daily balance: required for OnDeck.";
+      }
+
+      // Same rules as backend ondeck_client — catch bad fields before the API call
+      // so the toast names the exact form field.
+      const digitsOnly = (value: unknown) => String(value ?? "").replace(/\D/g, "");
+      const phoneDigits = (value: unknown) => {
+        let d = digitsOnly(value);
+        if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+        return d;
+      };
+      const usStates = new Set([
+        "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS",
+        "KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC",
+        "ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+      ]);
+      const stateOk = (value: unknown) => {
+        const raw = String(value ?? "").trim();
+        if (!raw) return false;
+        if (raw.length === 2 && usStates.has(raw.toUpperCase())) return true;
+        // Full names are OK — backend normalizes them.
+        return raw.length > 2;
+      };
+
+      const bizPhone = phoneDigits(business.phone);
+      if (bizPhone.length !== 10) {
+        return `OnDeck — Business phone: must be exactly 10 digits (got ${bizPhone.length || 0}). Fix this field before retrying.`;
+      }
+      const ein = digitsOnly(business.tax_id);
+      if (ein.length !== 9) {
+        return `OnDeck — Tax ID (EIN): must be exactly 9 digits (got ${ein.length || 0}). Fix this field before retrying.`;
+      }
+      const bizZip = digitsOnly(business.billing_postal_code);
+      if (bizZip.length < 5) {
+        return `OnDeck — Billing ZIP: must be exactly 5 digits (got ${bizZip.length || 0}).`;
+      }
+      if (!stateOk(business.billing_state)) {
+        return `OnDeck — Billing state: "${String(business.billing_state ?? "").trim()}" is not a valid US state. Use a 2-letter code (e.g. VA).`;
+      }
+
+      for (let i = 0; i < owners.length; i++) {
+        const owner = owners[i];
+        const suffix = owners.length > 1 ? ` (owner ${i + 1})` : "";
+        const oPhone = phoneDigits(owner.phone);
+        if (oPhone.length !== 10) {
+          return `OnDeck — Owner phone${suffix}: must be exactly 10 digits (got ${oPhone.length || 0}). Fix this field before retrying.`;
+        }
+        const ssn = digitsOnly(owner.ssn);
+        if (ssn.length !== 9) {
+          return `OnDeck — Owner SSN${suffix}: must be exactly 9 digits (got ${ssn.length || 0}). Fix this field before retrying.`;
+        }
+        const oZip = digitsOnly(owner.mailing_postal_code);
+        if (oZip.length < 5) {
+          return `OnDeck — Owner mailing ZIP${suffix}: must be exactly 5 digits (got ${oZip.length || 0}).`;
+        }
+        if (!stateOk(owner.mailing_state)) {
+          return `OnDeck — Owner mailing state${suffix}: "${String(owner.mailing_state ?? "").trim()}" is not a valid US state. Use a 2-letter code (e.g. VA).`;
+        }
+      }
+    }
+
+    // Catch state codes pasted into Industry (EDWINS TREE deal: "va" → OnDeck/CAN 500).
+    const industry = String(business.industry_naics_code ?? "").trim();
+    const industryLooksLikeState =
+      /^[A-Za-z]{2}$/.test(industry) &&
+      industry.toUpperCase() === String(business.billing_state ?? "").trim().toUpperCase();
+    const usStateCodes = new Set([
+      "AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS",
+      "KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC",
+      "ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY",
+    ]);
+    const industryIsStateCode =
+      /^[A-Za-z]{2}$/.test(industry) && usStateCodes.has(industry.toUpperCase());
+
+    if ((key === "ondeck" || key === "can") && (industryLooksLikeState || industryIsStateCode)) {
+      return `${label}: Industry / NAICS looks like a state code ("${industry}"). Use a NAICS code or industry name, or leave it blank — do not put the billing state there.`;
+    }
+    if (key === "ondeck" && industry) {
+      const digits = industry.replace(/\D/g, "");
+      if (digits.length < 2 || digits.length > 6) {
+        return `OnDeck: Industry / NAICS must be a 2–6 digit NAICS code (got "${industry}"), or leave blank.`;
       }
     }
 
     if (key === "channel" && !CHANNEL_ENTITY_TYPES.includes(String(business.entity_type ?? "").trim().toLowerCase())) {
       return `Channel only supports Corporation, LLC, or Sole Proprietorship as entity type (got "${business.entity_type}").`;
+    }
+
+    if (key === "ecg") {
+      const industry = String(business.ecg_industry ?? "").trim();
+      if (!ECG_INDUSTRIES.includes(industry as (typeof ECG_INDUSTRIES)[number])) {
+        return "Expansion: pick an Expansion industry from the list. A NAICS code will not work.";
+      }
+      if (owners.length > 2) {
+        return "Expansion accepts at most 2 owners.";
+      }
+      const totalOwnership = owners.reduce((sum, o) => sum + (Number(o.ownership_percentage) || 0), 0);
+      if (totalOwnership <= 0 || totalOwnership > 100) {
+        return `Expansion owner percentages must add up to 100% or less (currently ${totalOwnership.toFixed(0)}%).`;
+      }
     }
 
     return null;
@@ -658,12 +755,17 @@ export default function ApiPartnersPage() {
             : await api.partners.channelSubmit(payload, jobId, filenames, applicationFile);
       } else if (key === "idea") {
         res = await api.partners.ideaCreate(payload);
+      } else if (key === "ecg") {
+        res = await api.partners.ecgSubmit(payload);
       } else {
         res = await api.partners.canCreate(payload);
       }
       setSubmissions((prev) => ({ ...prev, [key]: res.data }));
       const zohoSync = "zoho_sync" in res ? String(res.zoho_sync || "") : "";
       let message = `Submitted to ${entry.label}. Reference: ${res.data.external_id}.`;
+      if (key === "ecg" && "owners_warning" in res && res.owners_warning) {
+        message += ` Owners were not added: ${res.owners_warning}`;
+      }
       if (zohoLeadId.trim() && zohoSync === "ok") {
         message += " Zoho Lead updated.";
       } else if (zohoLeadId.trim() && zohoSync) {
@@ -690,17 +792,49 @@ export default function ApiPartnersPage() {
     setBusy(key, true);
     setToast("");
     try {
-      const res =
-        key === "ondeck"
-          ? await api.partners.ondeckSendDocuments(submission.id, info.jobId, filenames)
-          : key === "idea"
-            ? await api.partners.ideaSendDocuments(submission.id, info.jobId, filenames, applicationFile)
-            : await api.partners.canSendDocuments(submission.id, info.jobId, filenames, applicationFile);
-      setSubmissions((prev) => ({ ...prev, [key]: res.data }));
-      const appNote = key !== "ondeck" && applicationFile ? " Application document included." : "";
-      setToast(
-        `Documents sent to ${entry.label}: ${filenames.length} bank statement${filenames.length === 1 ? "" : "s"}.${appNote}`,
-      );
+      if (key === "ecg") {
+        // One PDF per request — keeps each call under Cloudflare's ~100s limit.
+        // Use each file's own job id from its download path (compress can change jobs).
+        let last = submission;
+        const filesForPartner = partnerFiles(entry.label);
+        for (const file of filesForPartner) {
+          const rawName = file.download.split("/").pop() || file.name;
+          const filename = decodeURIComponent(rawName);
+          const fileJobId = jobIdFromDownloadPath(file.download) || info.jobId;
+          const res = await api.partners.ecgSendDocuments(submission.id, fileJobId, [filename]);
+          last = res.data;
+        }
+        if (applicationFile) {
+          const res = await api.partners.ecgSendDocuments(
+            submission.id,
+            info.jobId,
+            [],
+            applicationFile,
+          );
+          last = res.data;
+        }
+        setSubmissions((prev) => ({ ...prev, [key]: last }));
+        const appNote = applicationFile ? " Application document included." : "";
+        setToast(
+          `Documents sent to ${entry.label}: ${filesForPartner.length} bank statement${filesForPartner.length === 1 ? "" : "s"}.${appNote}`,
+        );
+      } else {
+        // OnDeck: bank statements ONLY. Step 4 application PDF must never
+        // be passed to ondeckSendDocuments (API has no application_document
+        // field either). Toast must not claim it was included for OnDeck.
+        const res =
+          key === "ondeck"
+            ? await api.partners.ondeckSendDocuments(submission.id, info.jobId, filenames)
+            : key === "idea"
+              ? await api.partners.ideaSendDocuments(submission.id, info.jobId, filenames, applicationFile)
+              : await api.partners.canSendDocuments(submission.id, info.jobId, filenames, applicationFile);
+        setSubmissions((prev) => ({ ...prev, [key]: res.data }));
+        const appNote =
+          key !== "ondeck" && applicationFile ? " Application document included." : "";
+        setToast(
+          `Documents sent to ${entry.label}: ${filenames.length} bank statement${filenames.length === 1 ? "" : "s"}.${appNote}`,
+        );
+      }
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Sending documents failed.");
     } finally {
@@ -711,7 +845,7 @@ export default function ApiPartnersPage() {
   async function onProcessPartner(key: PartnerFunderKey, consentAccepted: boolean) {
     const entry = PARTNER_ROSTER.find((p) => p.key === key);
     const submission = submissions[key];
-    if (!entry || !submission) return;
+    if (!entry || !submission || key === "ecg") return;
     setBusy(key, true);
     setToast("");
     try {
@@ -723,6 +857,30 @@ export default function ApiPartnersPage() {
       setToast(`${entry.label} application processed.`);
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Processing failed.");
+    } finally {
+      setBusy(key, false);
+    }
+  }
+
+  async function onCheckStatusPartner(key: PartnerFunderKey) {
+    const submission = submissions[key];
+    if (key !== "ecg" || !submission) return;
+    setBusy(key, true);
+    setToast("");
+    try {
+      const res = await api.partners.ecgStatus(submission.id, zohoLeadId.trim() || undefined);
+      const stage = res.data.status || "status returned";
+      const notes = res.data.notes ? ` Notes: ${res.data.notes}` : "";
+      let message = `Expansion status: ${stage}.${notes}`;
+      const zohoSync = String(res.zoho_sync || "");
+      if (zohoLeadId.trim() && zohoSync === "ok") {
+        message += " Zoho Lead status updated.";
+      } else if (zohoLeadId.trim() && zohoSync) {
+        message += ` Zoho update: ${zohoSync}`;
+      }
+      showToast(message, "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Status check failed.", "error");
     } finally {
       setBusy(key, false);
     }
@@ -1086,6 +1244,7 @@ export default function ApiPartnersPage() {
                   onSubmit={() => onSubmitPartner(p.key)}
                   onSendDocuments={() => onSendDocumentsPartner(p.key)}
                   onProcess={(consent) => onProcessPartner(p.key, consent)}
+                  onCheckStatus={p.checkStatus ? () => onCheckStatusPartner(p.key) : undefined}
                   onDownload={onDownload}
                 />
               ))}

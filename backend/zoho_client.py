@@ -440,10 +440,11 @@ def update_lead(
 
 
 def update_lead_partner_refs(lead_id: str, fields: dict[str, Any]) -> dict[str, Any]:
-    """Partial Lead update for funder IDs / OnDeck status only.
+    """Partial Lead update for funder IDs / status only.
 
     Matches the Zoho Deluge buttons: write lead_url, app_no, business_id,
-    IdeaFinancial_App_ID, canCapital_App_No. Empty values are omitted so a
+    IdeaFinancial_App_ID, canCapital_App_No, Expansion_App_ID,
+    Expansion_App_Status, OnDeck_App_Status. Empty values are omitted so a
     later CAN submit cannot blank an existing OnDeck id (and vice versa).
     """
     payload = {key: value for key, value in fields.items() if value not in (None, "")}

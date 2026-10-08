@@ -1,5 +1,38 @@
 import type { PartnerFunderKey } from "./types";
 
+export const ECG_INDUSTRIES = [
+  "Accounting & Tax Preparation",
+  "Agriculture",
+  "Automotive",
+  "Construction",
+  "Consulting",
+  "Cosmetology",
+  "Custodial & Janitorial",
+  "Education & Training",
+  "Financial Services",
+  "General Services",
+  "Health & Fitness",
+  "Hospitality",
+  "Insurance",
+  "IT",
+  "Law",
+  "Leisure & Entertainment",
+  "Manufacturing",
+  "Marketing",
+  "Medical",
+  "Nursery & Landscaping",
+  "Other",
+  "Pest Control",
+  "Real Estate",
+  "Restaurant & Bar Establishments",
+  "Retail",
+  "Security",
+  "Staffing",
+  "Telcom",
+  "Transportation & Delivery",
+  "Wholesale",
+] as const;
+
 export type PartnerRosterEntry = {
   key: PartnerFunderKey;
   label: string;
@@ -8,6 +41,8 @@ export type PartnerRosterEntry = {
   description: string;
   /** Button labels in flow order, matching the client's exact requested wording. */
   steps: string[];
+  /** When true, the third step checks status instead of the CAN/iDea credit-consent process. */
+  checkStatus?: boolean;
 };
 
 export const PARTNER_ROSTER: PartnerRosterEntry[] = [
@@ -45,5 +80,13 @@ export const PARTNER_ROSTER: PartnerRosterEntry[] = [
     apiReady: true,
     description: "Submit, send docs & process application",
     steps: ["Submit to iDea", "Send bs iDea", "Process app iDea"],
+  },
+  {
+    key: "ecg",
+    label: "Expansion Capital",
+    apiReady: true,
+    description: "Submit application, send bank statements, check status",
+    steps: ["Submit to Expansion", "Send bs Expansion", "Check status Expansion"],
+    checkStatus: true,
   },
 ];

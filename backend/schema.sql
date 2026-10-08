@@ -63,11 +63,11 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
--- Fixed roster of named funder-partner API integrations (channel/peac/ondeck/can/idea).
+-- Fixed roster of named funder-partner API integrations (channel/peac/ondeck/can/idea/ecg).
 -- Unrelated to the `funders` table above, which is the dynamic email-routing CRM list.
 CREATE TABLE IF NOT EXISTS partner_submissions (
     id                  BIGSERIAL PRIMARY KEY,
-    funder_key          TEXT NOT NULL CHECK (funder_key IN ('ondeck','can','idea','channel','peac')),
+    funder_key          TEXT NOT NULL CHECK (funder_key IN ('ondeck','can','idea','channel','peac','ecg')),
     brand_name          TEXT NOT NULL,
     deal_name           TEXT NOT NULL DEFAULT '',
     created_by_user_id  BIGINT NOT NULL REFERENCES users(id),
@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_partner_submission_events_submission_id ON partne
 -- partner on the submission page auto-resolves its watermark brand/Aquamark
 -- account from this table instead of the user picking a brand manually.
 CREATE TABLE IF NOT EXISTS partner_brand_assignments (
-    funder_key TEXT PRIMARY KEY CHECK (funder_key IN ('ondeck','can','idea','channel','peac')),
+    funder_key TEXT PRIMARY KEY CHECK (funder_key IN ('ondeck','can','idea','channel','peac','ecg')),
     brand_id   BIGINT REFERENCES brands(id) ON DELETE SET NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

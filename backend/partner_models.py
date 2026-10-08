@@ -22,6 +22,7 @@ class BusinessDetailsBody(BaseModel):
     state_of_formation: str = ""
     business_start_date: str = ""
     industry_naics_code: str = ""
+    ecg_industry: str = ""
     billing_street: str = ""
     billing_city: str = ""
     billing_state: str = ""

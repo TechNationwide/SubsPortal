@@ -571,6 +571,13 @@
 
       .user-bar {
         display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+
+      .user-bar-row {
+        display: flex;
         align-items: center;
         gap: 12px;
       }
@@ -6107,4 +6114,325 @@ a, button, input, select, textarea, .site-nav-link {
   border-radius: 10px;
   overflow: hidden;
 }
+
+/* ── Architecture docs (admin) ───────────────────────────────────── */
+
+.arch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.portal-header .solution-doc-link {
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+.arch-toolbar-note {
+  margin: 0;
+  color: var(--muted, #5b6472);
+  font-size: 0.92rem;
+  max-width: 42rem;
+}
+
+.arch-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.arch-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.arch-sidebar {
+  position: sticky;
+  top: 12px;
+  padding: 14px !important;
+}
+
+.arch-sidebar-title {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #5b6472);
+}
+
+.arch-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arch-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arch-sidebar-group-label {
+  margin: 0 0 2px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #5b6472);
+}
+
+.arch-sidebar-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.92rem;
+  color: inherit;
+}
+
+.arch-sidebar-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.arch-sidebar-link.is-active {
+  background: rgba(201, 162, 39, 0.16);
+  font-weight: 600;
+}
+
+.arch-section h2 {
+  margin-bottom: 6px;
+}
+
+.arch-prose p,
+.arch-prose li {
+  line-height: 1.55;
+}
+
+.arch-prose ul,
+.arch-prose ol {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.arch-flow-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.arch-flow-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.arch-flow-item-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arch-flow-node {
+  appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font: inherit;
+  min-width: 7.5rem;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.arch-flow-node.is-past {
+  border-color: rgba(46, 125, 50, 0.35);
+  background: rgba(46, 125, 50, 0.06);
+}
+
+.arch-flow-node.is-active {
+  border-color: rgba(201, 162, 39, 0.7);
+  background: rgba(201, 162, 39, 0.14);
+  transform: translateY(-1px);
+}
+
+.arch-flow-num {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.arch-flow-node.is-active .arch-flow-num {
+  background: rgba(201, 162, 39, 0.35);
+}
+
+.arch-flow-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.arch-flow-arrow {
+  color: rgba(0, 0, 0, 0.28);
+  font-weight: 700;
+}
+
+.arch-flow-arrow.is-on {
+  color: rgba(46, 125, 50, 0.75);
+}
+
+.arch-flow-detail {
+  padding: 14px 16px !important;
+}
+
+.arch-flow-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.arch-flow-detail-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.arch-flow-detail p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.arch-two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.arch-path-card {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.arch-path-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.arch-path-card p {
+  margin: 0 0 8px;
+}
+
+.arch-path-card p:last-child {
+  margin-bottom: 0;
+}
+
+.print-only {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .arch-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .arch-sidebar {
+    position: static;
+  }
+
+  .arch-sidebar-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .arch-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .no-print,
+  .portal-header,
+  .user-bar,
+  .site-nav,
+  .arch-toolbar,
+  .arch-sidebar,
+  .arch-screen-only,
+  .arch-flow-controls {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .portal-shell,
+  .portal-main,
+  .setup-page-main {
+    background: #fff !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .arch-layout {
+    display: block;
+  }
+
+  .arch-print-cover {
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #ccc;
+  }
+
+  .arch-print-cover h1 {
+    margin: 0 0 6px;
+    font-size: 1.5rem;
+  }
+
+  .arch-print-section {
+    break-inside: avoid;
+    margin: 0 0 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .arch-print-section h2 {
+    margin: 0 0 6px;
+    font-size: 1.15rem;
+  }
+
+  .arch-print-summary {
+    margin: 0 0 10px;
+    color: #444;
+  }
+
+  .arch-flow-node {
+    box-shadow: none !important;
+  }
+}
+
 

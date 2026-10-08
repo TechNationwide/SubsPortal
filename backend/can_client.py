@@ -29,6 +29,8 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from partner_industry import can_industry_value
+
 DEFAULT_BASE = "https://partner-api-sandbox.cancapital.com"
 MAX_DOCUMENT_BYTES = 12 * 1024 * 1024
 
@@ -199,7 +201,7 @@ def create_application(
         "accountDetails": {
             "name": business["legal_name"],
             "phone": _clean_phone(business.get("phone", "")),
-            "industry": business.get("industry_naics_code") or "Other",
+            "industry": can_industry_value(business.get("industry_naics_code")),
             "taxId": _digits(business.get("tax_id", ""), 9),
             "dba": business.get("dba") or business["legal_name"],
             "businessStructureName": business.get("entity_type", ""),

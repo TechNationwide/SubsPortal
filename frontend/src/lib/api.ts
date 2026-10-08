@@ -44,7 +44,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     let message = res.statusText || `Request failed (HTTP ${res.status})`;
     if (typeof detail === "string" && detail.trim()) message = detail;
     else if (Array.isArray(detail) && detail[0]?.msg) message = String(detail[0].msg);
-    else if (detail && typeof detail === "object") message = JSON.stringify(detail);
+    else if (
+      detail &&
+      typeof detail === "object" &&
+      typeof (detail as { message?: unknown }).message === "string" &&
+      (detail as { message: string }).message.trim()
+    ) {
+      // Partner validation: { field, message, funder } — show the human message.
+      message = (detail as { message: string }).message.trim();
+    } else if (detail && typeof detail === "object") message = JSON.stringify(detail);
     else if ((data as { error?: string }).error) message = (data as { error: string }).error;
     // nginx returns HTML 502 with empty JSON when the API process was killed
     // mid-request (memory restart) — give Keith something actionable.
@@ -278,6 +286,8 @@ export const api = {
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
       );
     },
+    // Bank statements only — intentionally no applicationDocument arg.
+    // Step 4 app PDF must never be sent to OnDeck.
     ondeckSendDocuments(submissionId: number, jobId: string, filenames: string[]) {
       return request<{ ok: boolean; data: PartnerSubmission }>(
         `/api/partners/ondeck/${submissionId}/send-documents`,
@@ -396,6 +406,49 @@ export const api = {
           body: JSON.stringify({ consent_accepted: consentAccepted }),
         },
       );
+    },
+
+    ecgSubmit(payload: PartnerSubmissionCreatePayload) {
+      return request<{ ok: boolean; data: PartnerSubmission; owners_warning?: string; zoho_sync?: string }>(
+        "/api/partners/ecg/submit-application",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      );
+    },
+    ecgSendDocuments(
+      submissionId: number,
+      jobId: string,
+      filenames: string[],
+      applicationDocument?: File | null,
+    ) {
+      // Bank statements: JSON body (reliable). Application-only: multipart.
+      if (applicationDocument && filenames.length === 0) {
+        const form = new FormData();
+        form.append("job_id", jobId || "");
+        form.append("filenames", "[]");
+        form.append("application_document", applicationDocument, applicationDocument.name);
+        return request<{ ok: boolean; data: PartnerSubmission }>(
+          `/api/partners/ecg/${submissionId}/send-documents`,
+          { method: "POST", body: form },
+        );
+      }
+      return request<{ ok: boolean; data: PartnerSubmission }>(
+        `/api/partners/ecg/${submissionId}/send-documents`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId, filenames }),
+        },
+      );
+    },
+    ecgStatus(submissionId: number, zohoLeadId?: string) {
+      const qs = zohoLeadId?.trim()
+        ? `?zoho_lead_id=${encodeURIComponent(zohoLeadId.trim())}`
+        : "";
+      return request<{
+        ok: boolean;
+        data: { status?: string; notes?: string };
+        zoho_sync?: string;
+      }>(`/api/partners/ecg/${submissionId}/status${qs}`);
     },
   },
 

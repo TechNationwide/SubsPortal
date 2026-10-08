@@ -144,15 +144,14 @@ def _clean_phone(phone: str) -> str:
 _CATEGORY_BANK_STATEMENT = 1
 _CATEGORY_APPLICATION = 5
 
-# Channel ApplicationTypes enum (confirmed against their live API / swagger):
-# 1  = New
-# 25 = Renewal Concurrent  (old Zoho Send_Lead_to_Channel button hardcoded this)
-# Keith / Channel asked that portal submissions go out as New, not Renewal Concurrent.
-_APPLICATION_TYPE_NEW = 1
+# Channel ApplicationTypes — confirmed by Channel (Oct 2026):
+# 1  = Equipment Finance  (was incorrectly used for all portal WC submits)
+# 25 = Working Capital    (required for Nationwide MCA / working-capital deals)
+_APPLICATION_TYPE_WORKING_CAPITAL = 25
 
-# Channel EquipmentType Id 8 = "Other" (from GetEquipmentTypesInfo). Used for
-# working-capital style New apps that still require at least one Equipment row
-# before /application/end will finalize.
+# Channel EquipmentType Id 8 = "Other" (from GetEquipmentTypesInfo).
+# Still posted before /application/end — Channel has historically required
+# at least one Equipment row to finalize; description defaults to Working Capital.
 _EQUIPMENT_TYPE_OTHER = 8
 
 
@@ -169,8 +168,8 @@ def submit_application(
     Per Channel's own API doc: "having at least one file with the Category
     of 'Bank Statement' and a file with the Category of 'Application' is
     required to submit the application" - Category 1 = Bank Statement,
-    Category 5 = Application. New applications also require at least one
-    Equipment row via /application/addequipment before /application/end."""
+    Category 5 = Application. ApplicationTypes must be 25 (Working Capital)
+    for Nationwide portal deals — not 1 (Equipment Finance)."""
     if not bank_statement_files:
         raise ValueError("Channel requires at least one bank statement file to submit an application.")
     if application_file is None:
@@ -178,7 +177,12 @@ def submit_application(
     owner = owners[0] if owners else {}
     user_email = os.getenv("CHANNEL_USER_EMAIL") or ""
 
-    start_body = {"Request": {"UserEmailAddress": user_email, "ApplicationTypes": [_APPLICATION_TYPE_NEW]}}
+    start_body = {
+        "Request": {
+            "UserEmailAddress": user_email,
+            "ApplicationTypes": [_APPLICATION_TYPE_WORKING_CAPITAL],
+        }
+    }
     _, raw, content_type = _request("POST", "/application/start?api-version=2.0", body=start_body)
     try:
         start_data = json.loads(raw)
@@ -264,10 +268,9 @@ def submit_application(
     if not _is_success(contact_resp.get("Response")) or contact_resp.get("Errors") is not None:
         raise RuntimeError(f"Channel addcontact failed: {json.dumps(contact_resp, indent=2)}")
 
-    # New (ApplicationTypes=1) apps reject /application/end with
-    # "'Equipments' must not be empty" unless at least one equipment row
-    # is posted first. Channel's Equipment.Address is required (their
-    # validator Counts it). Schema: /v2/swagger Equipment definition.
+    # Channel has required at least one Equipment row before /application/end
+    # will finalize (validator: "'Equipments' must not be empty"). Address is
+    # required on Equipment. Schema: /v2/swagger Equipment definition.
     equipment_cost = loan.get("requested_amount") or 0
     try:
         equipment_cost = float(equipment_cost)

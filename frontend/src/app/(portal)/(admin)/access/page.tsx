@@ -12,6 +12,7 @@ const INTEGRATION_LABELS: Record<string, string> = {
   peac: "PEAC",
   channel: "Channel",
   idea: "iDea Financial",
+  ecg: "Expansion Capital",
   zoho: "Zoho CRM",
 };
 

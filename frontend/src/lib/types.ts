@@ -53,6 +53,7 @@ export type BusinessDetails = {
   state_of_formation: string;
   business_start_date: string;
   industry_naics_code: string;
+  ecg_industry: string;
   billing_street: string;
   billing_city: string;
   billing_state: string;
@@ -86,7 +87,7 @@ export type LoanDetails = {
 
 // ─────────────────────── Zoho CRM lookup ───────────────────────
 
-export type ZohoBusinessFields = Omit<BusinessDetails, "industry_naics_code" | "billing_country">;
+export type ZohoBusinessFields = Omit<BusinessDetails, "industry_naics_code" | "billing_country" | "ecg_industry">;
 
 export type ZohoOwnerFields = Omit<OwnerDetails, "title" | "mailing_country">;
 
@@ -99,7 +100,7 @@ export type ZohoLeadData = {
   raw: Record<string, unknown>;
 };
 
-export type PartnerFunderKey = "channel" | "peac" | "ondeck" | "can" | "idea";
+export type PartnerFunderKey = "channel" | "peac" | "ondeck" | "can" | "idea" | "ecg";
 
 export type PartnerSubmissionStatus = "draft" | "submitted" | "docs_sent" | "processed" | "error";
 

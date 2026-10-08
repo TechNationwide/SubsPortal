@@ -13,6 +13,7 @@ type Props = {
   onSubmit: () => void;
   onSendDocuments: () => void;
   onProcess: (consentAccepted: boolean) => void;
+  onCheckStatus?: () => void;
   onDownload: (file: ProcessedFile) => void;
 };
 
@@ -25,16 +26,18 @@ export function PartnerActionCard({
   onSubmit,
   onSendDocuments,
   onProcess,
+  onCheckStatus,
   onDownload,
 }: Props) {
   const [consent, setConsent] = useState(false);
   const status = submission?.status ?? "draft";
 
-  const isThreeStep = entry.steps.length === 3;
+  const isConsentStep = entry.steps.length === 3 && !entry.checkStatus;
   const canSubmit = !entry.apiReady ? false : status === "draft" || status === "error";
   const canSendDocs =
     entry.apiReady && (status === "submitted" || status === "docs_sent") && files.length > 0;
-  const canProcess = entry.apiReady && isThreeStep && status === "docs_sent" && consent;
+  const canProcess = entry.apiReady && isConsentStep && status === "docs_sent" && consent;
+  const canCheckStatus = Boolean(entry.checkStatus && submission?.external_id);
 
   return (
     <article className="partner-card">
@@ -97,7 +100,7 @@ export function PartnerActionCard({
             {entry.steps[1]}
           </button>
         )}
-        {entry.steps[2] && isThreeStep && (
+        {entry.steps[2] && isConsentStep && (
           <>
             <label className="partner-consent-check">
               <input
@@ -118,7 +121,17 @@ export function PartnerActionCard({
             </button>
           </>
         )}
-        {entry.steps[2] && !isThreeStep && (
+        {entry.checkStatus && entry.steps[2] && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-xs"
+            disabled={!canCheckStatus || busy}
+            onClick={onCheckStatus}
+          >
+            {entry.steps[2]}
+          </button>
+        )}
+        {entry.steps[2] && !isConsentStep && !entry.checkStatus && (
           <button type="button" className="btn btn-secondary btn-xs" disabled title="Not available for this partner.">
             {entry.steps[2]}
           </button>
