@@ -465,9 +465,19 @@ export const api = {
     },
     updateLead(
       leadId: string,
-      payload: { business: ZohoBusinessFields; owners: ZohoOwnerFields[]; loan: ZohoLoanFields },
+      payload: {
+        business: ZohoBusinessFields;
+        owners: ZohoOwnerFields[];
+        loan: ZohoLoanFields;
+        partner_refs?: Record<string, string>;
+      },
     ) {
-      return request<{ ok: boolean; data: unknown }>(`/api/zoho/leads/${encodeURIComponent(leadId)}`, {
+      return request<{
+        ok: boolean;
+        data: unknown;
+        partner_sync?: string;
+        partner_refs?: Record<string, string>;
+      }>(`/api/zoho/leads/${encodeURIComponent(leadId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

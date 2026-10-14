@@ -1865,6 +1865,10 @@ class ZohoLeadUpdateBody(BaseModel):
     business: ZohoBusinessBody
     owners: list[ZohoOwnerBody] = Field(min_length=1, max_length=1)
     loan: ZohoLoanBody
+    # Optional funder IDs from the Partners session (OnDeck/CAN/iDea/Expansion).
+    # Written with the same partial-update helper used on partner submit so Push
+    # to Zoho fills the Dev: onDeck section, not only business/owner/loan.
+    partner_refs: dict[str, Any] = Field(default_factory=dict)
 
 
 @app.get("/api/zoho/leads/{lead_id}")
@@ -1888,6 +1892,11 @@ def zoho_update_lead(lead_id: str, body: ZohoLeadUpdateBody, _user=Depends(requi
             [o.model_dump() for o in body.owners],
             body.loan.model_dump(),
         )
-        return {"ok": True, "data": result}
+        partner_sync = ""
+        refs = {k: v for k, v in (body.partner_refs or {}).items() if v not in (None, "")}
+        if refs:
+            zoho_client.update_lead_partner_refs(lead_id, refs)
+            partner_sync = "ok"
+        return {"ok": True, "data": result, "partner_sync": partner_sync, "partner_refs": refs}
     except (RuntimeError, ValueError) as exc:
         raise _partner_error(exc) from exc

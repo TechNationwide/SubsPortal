@@ -129,12 +129,15 @@ export default function ApiPartnersPage() {
     }
   }, [zohoLeadId, showToast]);
 
+  const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
+  const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
+
   const pushToZoho = useCallback(async () => {
     const leadId = zohoLeadId.trim();
     if (!leadId) return;
     if (
       !window.confirm(
-        `This will overwrite the mapped fields on Zoho Lead ${leadId} with the business/owner/loan values currently on this form. Continue?`,
+        `This will overwrite the mapped fields on Zoho Lead ${leadId} with the business/owner/loan values currently on this form, and write any OnDeck / CAN / iDea / Expansion IDs already submitted in this session. Continue?`,
       )
     ) {
       return;
@@ -142,7 +145,20 @@ export default function ApiPartnersPage() {
     setZohoPushing(true);
     try {
       const owner = owners[0] ?? emptyOwnerDetails();
-      await api.zoho.updateLead(leadId, {
+      const partnerRefs: Record<string, string> = {};
+      const ondeckId = String(submissions.ondeck?.external_id || "").trim();
+      const canId = String(submissions.can?.external_id || "").trim();
+      const ideaId = String(submissions.idea?.external_id || "").trim();
+      const ecgId = String(submissions.ecg?.external_id || "").trim();
+      if (ondeckId) partnerRefs.business_id = ondeckId;
+      if (canId) {
+        partnerRefs.canCapital_App_No = canId;
+        partnerRefs.canCapital_App_No_1 = canId;
+      }
+      if (ideaId) partnerRefs.IdeaFinancial_App_ID = ideaId;
+      if (ecgId) partnerRefs.Expansion_App_ID = ecgId;
+
+      const res = await api.zoho.updateLead(leadId, {
         business: {
           legal_name: String(business.legal_name ?? ""),
           dba: String(business.dba ?? ""),
@@ -175,17 +191,22 @@ export default function ApiPartnersPage() {
           average_monthly_revenue: loan.average_monthly_revenue,
           average_daily_balance: loan.average_daily_balance,
         },
+        partner_refs: partnerRefs,
       });
-      showToast("Pushed to Zoho successfully.", "success");
+      const pushedKeys = Object.keys(res.partner_refs || partnerRefs);
+      showToast(
+        pushedKeys.length
+          ? `Pushed to Zoho successfully (including ${pushedKeys.length} funder ID field${pushedKeys.length === 1 ? "" : "s"}).`
+          : "Pushed to Zoho successfully. No funder IDs in this session yet — submit a partner first, then push again.",
+        "success",
+      );
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to push to Zoho.", "error");
     } finally {
       setZohoPushing(false);
     }
-  }, [zohoLeadId, business, owners, loan, showToast]);
+  }, [zohoLeadId, business, owners, loan, submissions, showToast]);
 
-  const [partnersStatus, setPartnersStatus] = useState<Record<string, PartnerIntegrationStatus>>({});
-  const [submissions, setSubmissions] = useState<Partial<Record<PartnerFunderKey, PartnerSubmission>>>({});
   // A set, not a single key - submitting to multiple partners at once is
   // expected (each is an independent request), and a single shared "busy"
   // value would clear partner A's busy/disabled state the moment partner B
