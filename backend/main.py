@@ -200,6 +200,21 @@ def require_admin(user: dict[str, Any] = Depends(require_auth)) -> dict[str, Any
         raise HTTPException(403, "Admin access required.")
     return user
 
+
+# Users & Roles page/API — Keith + Tech only (not every admin).
+_USERS_ROLES_EMAILS = {
+    "keith@nationwideadvance.com",
+    "tech@nationwideadvance.com",
+    "admin@nationwideadvance.com",  # Tech console login
+}
+
+
+def require_users_roles_admin(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    email = str(user.get("email") or "").strip().lower()
+    if email not in _USERS_ROLES_EMAILS:
+        raise HTTPException(403, "Users & Roles is limited to Keith and Tech.")
+    return user
+
 # EXTRA_CORS_ORIGINS: comma-separated origins (e.g. a Vercel deployment URL)
 # so new frontend hosts can be allowed via an env var instead of a redeploy.
 _extra_origins = [
@@ -539,12 +554,12 @@ def delete_team(team_id: str, _admin=Depends(require_admin)):
 
 
 @app.get("/api/users")
-def list_users_endpoint(_admin=Depends(require_admin)):
+def list_users_endpoint(_admin=Depends(require_users_roles_admin)):
     return {"ok": True, "data": list_users()}
 
 
 @app.post("/api/users")
-def create_user_endpoint(body: UserCreateBody, _admin=Depends(require_admin)):
+def create_user_endpoint(body: UserCreateBody, _admin=Depends(require_users_roles_admin)):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
     role = _validate_role(body.role)
@@ -560,7 +575,7 @@ def create_user_endpoint(body: UserCreateBody, _admin=Depends(require_admin)):
 
 
 @app.put("/api/users/{user_id}")
-def update_user_endpoint(user_id: int, body: UserBody, _admin=Depends(require_admin)):
+def update_user_endpoint(user_id: int, body: UserBody, _admin=Depends(require_users_roles_admin)):
     role = _validate_role(body.role)
     if role != "admin" and count_admins(exclude_user_id=user_id) < 1:
         raise HTTPException(400, "At least one admin is required.")
@@ -576,7 +591,7 @@ def update_user_endpoint(user_id: int, body: UserBody, _admin=Depends(require_ad
 
 
 @app.delete("/api/users/{user_id}")
-def delete_user_endpoint(user_id: int, _admin=Depends(require_admin)):
+def delete_user_endpoint(user_id: int, _admin=Depends(require_users_roles_admin)):
     if count_admins(exclude_user_id=user_id) < 1:
         raise HTTPException(400, "At least one admin is required.")
     delete_user(user_id)
@@ -585,7 +600,7 @@ def delete_user_endpoint(user_id: int, _admin=Depends(require_admin)):
 
 @app.post("/api/users/{user_id}/reset-password")
 def reset_password_endpoint(
-    user_id: int, body: PasswordResetBody, _admin=Depends(require_admin)
+    user_id: int, body: PasswordResetBody, _admin=Depends(require_users_roles_admin)
 ):
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
