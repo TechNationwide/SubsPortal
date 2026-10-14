@@ -3,6 +3,7 @@ import type {
   Brand,
   BusinessDetails,
   Funder,
+  IntegrationStatusResponse,
   LoanDetails,
   OwnerDetails,
   PartnerBrandAssignments,
@@ -251,6 +252,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preset }),
     });
+  },
+
+  getIntegrationStatus(hours = 48) {
+    return request<IntegrationStatusResponse>(`/api/ops/integration-status?hours=${hours}`);
   },
 
   partners: {

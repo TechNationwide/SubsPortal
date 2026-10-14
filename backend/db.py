@@ -540,6 +540,106 @@ def list_partner_submission_events(submission_id: int) -> list[dict[str, Any]]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def list_recent_partner_events(*, hours: int = 48, limit: int = 80) -> list[dict[str, Any]]:
+    """Newest partner/Zoho audit rows for the Integration Status console."""
+    hours = max(1, min(int(hours or 48), 168))
+    limit = max(1, min(int(limit or 80), 200))
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT e.id, e.submission_id, e.action, e.ok, e.http_status, e.message, e.created_at,
+                   s.funder_key, s.deal_name, s.external_id, s.status AS submission_status
+            FROM partner_submission_events e
+            JOIN partner_submissions s ON s.id = e.submission_id
+            WHERE e.created_at > now() - (%s * interval '1 hour')
+            ORDER BY e.id DESC
+            LIMIT %s
+            """,
+            (hours, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def list_zoho_writeback_gaps(*, hours: int = 48, limit: int = 40) -> list[dict[str, Any]]:
+    """Funder submits that never attempted a Zoho Lead ID write-back."""
+    hours = max(1, min(int(hours or 48), 168))
+    limit = max(1, min(int(limit or 40), 100))
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT s.id, s.funder_key, s.deal_name, s.external_id, s.status, s.created_at, s.updated_at
+            FROM partner_submissions s
+            WHERE s.created_at > now() - (%s * interval '1 hour')
+              AND s.funder_key IN ('ondeck','can','idea','ecg')
+              AND s.status IN ('submitted','docs_sent','processed')
+              AND COALESCE(s.external_id, '') <> ''
+              AND NOT EXISTS (
+                SELECT 1 FROM partner_submission_events e
+                WHERE e.submission_id = s.id AND e.action = 'zoho_partner_ids'
+              )
+            ORDER BY s.id DESC
+            LIMIT %s
+            """,
+            (hours, limit),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+def summarize_partner_activity(*, hours: int = 48) -> dict[str, Any]:
+    """Counts for the Integration Status summary strip."""
+    hours = max(1, min(int(hours or 48), 168))
+    with _cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              count(*) FILTER (WHERE status IN ('submitted','docs_sent','processed')) AS submits,
+              count(*) FILTER (WHERE status = 'error') AS errors
+            FROM partner_submissions
+            WHERE created_at > now() - (%s * interval '1 hour')
+              AND funder_key IN ('ondeck','can','idea','channel','peac','ecg')
+            """,
+            (hours,),
+        )
+        sub = dict(cur.fetchone() or {})
+        cur.execute(
+            """
+            SELECT
+              count(*) FILTER (WHERE action = 'zoho_partner_ids' AND ok) AS zoho_ok,
+              count(*) FILTER (WHERE action = 'zoho_partner_ids' AND NOT ok) AS zoho_failed,
+              count(*) FILTER (WHERE NOT ok AND action <> 'zoho_partner_ids') AS api_failed
+            FROM partner_submission_events
+            WHERE created_at > now() - (%s * interval '1 hour')
+            """,
+            (hours,),
+        )
+        ev = dict(cur.fetchone() or {})
+        cur.execute(
+            """
+            SELECT count(*) AS n
+            FROM partner_submissions s
+            WHERE s.created_at > now() - (%s * interval '1 hour')
+              AND s.funder_key IN ('ondeck','can','idea','ecg')
+              AND s.status IN ('submitted','docs_sent','processed')
+              AND COALESCE(s.external_id, '') <> ''
+              AND NOT EXISTS (
+                SELECT 1 FROM partner_submission_events e
+                WHERE e.submission_id = s.id AND e.action = 'zoho_partner_ids'
+              )
+            """,
+            (hours,),
+        )
+        gaps = int((cur.fetchone() or {}).get("n") or 0)
+    return {
+        "hours": hours,
+        "submits": int(sub.get("submits") or 0),
+        "errors": int(sub.get("errors") or 0),
+        "zoho_ok": int(ev.get("zoho_ok") or 0),
+        "zoho_failed": int(ev.get("zoho_failed") or 0),
+        "api_failed": int(ev.get("api_failed") or 0),
+        "zoho_skipped": gaps,
+    }
+
+
 _PARTNER_KEYS = ("ondeck", "can", "idea", "channel", "peac", "ecg")
 _ECG_CONSTRAINT_READY = False
 

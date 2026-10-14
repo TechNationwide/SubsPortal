@@ -766,12 +766,18 @@ export default function ApiPartnersPage() {
       if (key === "ecg" && "owners_warning" in res && res.owners_warning) {
         message += ` Owners were not added: ${res.owners_warning}`;
       }
-      if (zohoLeadId.trim() && zohoSync === "ok") {
+      if (zohoSync === "ok") {
         message += " Zoho Lead updated.";
+        showToast(message, "success");
+      } else if (zohoSync === "skipped_no_lead_id") {
+        message += " Zoho Lead ID was blank — funder IDs were not written to Zoho.";
+        showToast(message, "error");
       } else if (zohoLeadId.trim() && zohoSync) {
         message += ` Zoho update: ${zohoSync}`;
+        showToast(message, "error");
+      } else {
+        showToast(message, "success");
       }
-      showToast(message, "success");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Submission failed.", "error");
     } finally {

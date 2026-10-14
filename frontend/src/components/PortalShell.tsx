@@ -16,9 +16,17 @@ const NAV = [
   { id: "funders", label: "Funders", href: "/funders" },
   { id: "users", label: "Users", href: "/users" },
   { id: "access", label: "Access", href: "/access" },
+  { id: "integration-status", label: "Integration Status", href: "/integration-status" },
 ];
 
-const ADMIN_ONLY_NAV_IDS = new Set(["teams", "brands", "funders", "users", "access"]);
+const ADMIN_ONLY_NAV_IDS = new Set([
+  "teams",
+  "brands",
+  "funders",
+  "users",
+  "access",
+  "integration-status",
+]);
 
 const SOLUTION_DOC = { id: "architecture", label: "Solution Document", href: "/architecture" };
 

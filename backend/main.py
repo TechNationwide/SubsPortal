@@ -46,12 +46,15 @@ from db import (
     get_teams,
     get_user_by_token,
     list_partner_submissions,
+    list_recent_partner_events,
     list_users,
+    list_zoho_writeback_gaps,
     reset_password,
     save_brands,
     save_funders,
     save_teams,
     set_partner_brand_assignment,
+    summarize_partner_activity,
     sync_funders_after_brand_removal,
     update_partner_submission,
     update_user,
@@ -115,8 +118,17 @@ def _push_partner_ids_to_zoho(lead_id: str, submission_id: int, fields: dict[str
     """
     lead_id = (lead_id or "").strip()
     if not lead_id:
-        return ""
+        # Log so Integration Status can show why OnDeck/CAN/iDea IDs stay blank in Zoho.
+        _log_event(
+            submission_id,
+            "zoho_partner_ids",
+            False,
+            None,
+            "Skipped — Zoho Lead ID was blank on submit, so funder IDs were not written to Zoho.",
+        )
+        return "skipped_no_lead_id"
     if not zoho_client.zoho_configured():
+        _log_event(submission_id, "zoho_partner_ids", False, None, "Zoho CRM is not configured.")
         return "Zoho CRM is not configured."
     try:
         zoho_client.update_lead_partner_refs(lead_id, fields)
@@ -935,6 +947,88 @@ def partners_status(_user=Depends(require_auth)):
             "ecg": ecg_client.describe_integration(),
             "zoho": zoho_client.describe_integration(),
         },
+    }
+
+
+def _json_safe_row(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in row.items():
+        if hasattr(value, "isoformat"):
+            out[key] = value.isoformat()
+        else:
+            out[key] = value
+    return out
+
+
+@app.get("/api/ops/integration-status")
+def integration_status_console(
+    hours: int = 48,
+    _admin=Depends(require_admin),
+):
+    """Admin-only live view of funder/Zoho activity for Keith & tech."""
+    hours = max(1, min(int(hours or 48), 168))
+    partners = {
+        "ondeck": ondeck_client.describe_integration(),
+        "can": can_client.describe_integration(),
+        "idea": idea_client.describe_integration(),
+        "channel": channel_client.describe_integration(),
+        "peac": peac_client.describe_integration(),
+        "ecg": ecg_client.describe_integration(),
+        "zoho": zoho_client.describe_integration(),
+        "aquamark": describe_integration(),
+    }
+    events = [_json_safe_row(r) for r in list_recent_partner_events(hours=hours, limit=80)]
+    gaps = [_json_safe_row(r) for r in list_zoho_writeback_gaps(hours=hours, limit=40)]
+    summary = summarize_partner_activity(hours=hours)
+
+    last_by_funder: dict[str, dict[str, Any]] = {}
+    for ev in events:
+        key = str(ev.get("funder_key") or "")
+        if key and key not in last_by_funder:
+            last_by_funder[key] = ev
+    zoho_events = [e for e in events if e.get("action") == "zoho_partner_ids"]
+    if zoho_events:
+        last_by_funder["zoho"] = zoho_events[0]
+
+    issues: list[dict[str, Any]] = []
+    for ev in events:
+        if ev.get("ok"):
+            continue
+        issues.append(
+            {
+                "when": ev.get("created_at"),
+                "kind": "event",
+                "funder_key": ev.get("funder_key"),
+                "deal_name": ev.get("deal_name"),
+                "submission_id": ev.get("submission_id"),
+                "external_id": ev.get("external_id"),
+                "action": ev.get("action"),
+                "note": (ev.get("message") or "")[:500],
+            }
+        )
+    for gap in gaps:
+        issues.append(
+            {
+                "when": gap.get("created_at"),
+                "kind": "zoho_gap",
+                "funder_key": gap.get("funder_key"),
+                "deal_name": gap.get("deal_name"),
+                "submission_id": gap.get("id"),
+                "external_id": gap.get("external_id"),
+                "action": "zoho_partner_ids",
+                "note": "No Zoho Lead ID write-back was logged for this submission (Lead ID was likely blank).",
+            }
+        )
+    issues.sort(key=lambda row: str(row.get("when") or ""), reverse=True)
+
+    return {
+        "ok": True,
+        "summary": summary,
+        "partners": partners,
+        "last_by_funder": last_by_funder,
+        "events": events,
+        "issues": issues[:60],
+        "zoho_gaps": gaps,
     }
 
 

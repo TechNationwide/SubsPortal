@@ -6435,4 +6435,141 @@ a, button, input, select, textarea, .site-nav-link {
   }
 }
 
+/* ── Integration Status (admin ops console) ── */
+.ops-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ops-toolbar-left,
+.ops-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ops-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.ops-summary-card {
+  background: #fff;
+  border: 1px solid rgba(12, 21, 32, 0.08);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(12, 21, 32, 0.04);
+}
+
+.ops-summary-card .ops-summary-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ops-summary-card strong {
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ops-banner {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.ops-banner-ok {
+  background: rgba(34, 140, 84, 0.1);
+  color: #14633b;
+  border: 1px solid rgba(34, 140, 84, 0.22);
+}
+
+.ops-banner-warn {
+  background: rgba(196, 120, 40, 0.1);
+  color: #7a4a12;
+  border: 1px solid rgba(196, 120, 40, 0.22);
+}
+
+.ops-line-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ops-line-card {
+  border: 1px solid rgba(12, 21, 32, 0.08);
+  border-radius: 14px;
+  padding: 16px;
+  background: linear-gradient(180deg, #fff 0%, #f8fafb 100%);
+}
+
+.ops-line-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ops-line-card-top h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ops-line-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ops-line-meta span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.ops-line-meta em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ops-line-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+@media (max-width: 960px) {
+  .ops-summary-grid,
+  .ops-line-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-line-meta {
+    grid-template-columns: 1fr;
+  }
+}
+
 

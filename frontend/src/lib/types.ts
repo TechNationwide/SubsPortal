@@ -127,6 +127,59 @@ export type PartnerIntegrationStatus = {
   [key: string]: unknown;
 };
 
+export type IntegrationStatusSummary = {
+  hours: number;
+  submits: number;
+  errors: number;
+  zoho_ok: number;
+  zoho_failed: number;
+  api_failed: number;
+  zoho_skipped: number;
+};
+
+export type IntegrationStatusEvent = {
+  id: number;
+  submission_id: number;
+  action: string;
+  ok: boolean;
+  http_status: number | null;
+  message: string;
+  created_at: string;
+  funder_key: string;
+  deal_name: string;
+  external_id: string;
+  submission_status: string;
+};
+
+export type IntegrationStatusIssue = {
+  when: string;
+  kind: string;
+  funder_key: string;
+  deal_name: string;
+  submission_id: number;
+  external_id: string;
+  action: string;
+  note: string;
+};
+
+export type IntegrationStatusResponse = {
+  ok: boolean;
+  summary: IntegrationStatusSummary;
+  partners: Record<string, PartnerIntegrationStatus>;
+  last_by_funder: Record<string, IntegrationStatusEvent>;
+  events: IntegrationStatusEvent[];
+  issues: IntegrationStatusIssue[];
+  zoho_gaps: Array<{
+    id: number;
+    funder_key: string;
+    deal_name: string;
+    external_id: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+};
+
 export type PartnerBrandAssignment = { brand_index: number; brand_name: string } | null;
 
 export type PartnerBrandAssignments = Partial<Record<PartnerFunderKey, PartnerBrandAssignment>>;
