@@ -39,10 +39,15 @@ function formatWhen(value?: string | null) {
   return d.toLocaleString();
 }
 
-function shortNote(value?: string | null, max = 180) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
+/** Full message — pretty-print JSON when possible so every word stays readable. */
+function formatMessage(value?: string | null) {
+  const text = String(value || "").trim();
   if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
 }
 
 function cardState(configured: boolean, last?: IntegrationStatusEvent) {
@@ -151,8 +156,8 @@ export default function IntegrationStatusPage() {
         <div className="ops-banner ops-banner-ok">Integrations look healthy in this window.</div>
       ) : summary ? (
         <div className="ops-banner ops-banner-warn">
-          Review the issues below — blank Zoho Lead IDs on submit are the most common reason OnDeck / CAN / iDea
-          IDs stay empty in CRM.
+          Review the issues below — blank Zoho Lead IDs on submit are the most common reason OnDeck / CAN / iDea /
+          Expansion IDs stay empty in CRM.
         </div>
       ) : null}
 
@@ -161,35 +166,40 @@ export default function IntegrationStatusPage() {
           <h2>API lines</h2>
           <p className="panel-sub">Configured status plus the newest logged response for each funder.</p>
         </div>
-        <div className="ops-line-grid">
-          {INTEGRATION_ORDER.map((key) => {
-            const status = (partners[key] || { configured: false }) as PartnerIntegrationStatus;
-            const last = lastByFunder[key];
-            const state = cardState(Boolean(status.configured), last);
-            return (
-              <article key={key} className="ops-line-card">
-                <div className="ops-line-card-top">
-                  <h3>{INTEGRATION_LABELS[key] || key}</h3>
-                  <span className={`brand-status-pill ${state.tone}`}>{state.label}</span>
-                </div>
-                <div className="ops-line-meta">
-                  <span>
-                    <em>Configured</em>
-                    {status.configured ? "Yes" : "No"}
-                  </span>
-                  <span>
-                    <em>Last action</em>
-                    {last?.action || "—"}
-                  </span>
-                  <span>
-                    <em>When</em>
-                    {formatWhen(last?.created_at)}
-                  </span>
-                </div>
-                <p className="ops-line-note">{shortNote(last?.message || (status.configured ? "No recent events." : "Credentials not set on server."))}</p>
-              </article>
-            );
-          })}
+        <div className="ops-scroll-panel ops-scroll-panel-lines">
+          <div className="ops-line-grid">
+            {INTEGRATION_ORDER.map((key) => {
+              const status = (partners[key] || { configured: false }) as PartnerIntegrationStatus;
+              const last = lastByFunder[key];
+              const state = cardState(Boolean(status.configured), last);
+              const note = formatMessage(
+                last?.message || (status.configured ? "No recent events." : "Credentials not set on server."),
+              );
+              return (
+                <article key={key} className="ops-line-card">
+                  <div className="ops-line-card-top">
+                    <h3>{INTEGRATION_LABELS[key] || key}</h3>
+                    <span className={`brand-status-pill ${state.tone}`}>{state.label}</span>
+                  </div>
+                  <dl className="ops-line-meta">
+                    <div>
+                      <dt>Configured</dt>
+                      <dd>{status.configured ? "Yes" : "No"}</dd>
+                    </div>
+                    <div>
+                      <dt>Last action</dt>
+                      <dd className="ops-mono">{last?.action || "—"}</dd>
+                    </div>
+                    <div>
+                      <dt>When</dt>
+                      <dd>{formatWhen(last?.created_at)}</dd>
+                    </div>
+                  </dl>
+                  <pre className="ops-msg ops-msg-card">{note}</pre>
+                </article>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -203,32 +213,34 @@ export default function IntegrationStatusPage() {
         ) : issues.length === 0 ? (
           <p className="crm-muted">No issues in this window.</p>
         ) : (
-          <div className="crm-table-wrap">
-            <table className="crm-table">
+          <div className="ops-scroll-panel">
+            <table className="crm-table ops-table">
               <thead>
                 <tr>
-                  <th>When</th>
-                  <th>API</th>
-                  <th>Deal</th>
+                  <th className="ops-col-when">When</th>
+                  <th className="ops-col-api">API</th>
+                  <th className="ops-col-deal">Deal</th>
                   <th>Note</th>
                 </tr>
               </thead>
               <tbody>
                 {issues.map((issue: IntegrationStatusIssue, idx) => (
                   <tr key={`${issue.submission_id}-${issue.kind}-${idx}`}>
-                    <td>{formatWhen(issue.when)}</td>
-                    <td>
+                    <td className="ops-col-when">{formatWhen(issue.when)}</td>
+                    <td className="ops-col-api">
                       <strong>{INTEGRATION_LABELS[issue.funder_key] || issue.funder_key || "—"}</strong>
-                      <div className="crm-muted">{issue.action}</div>
+                      <div className="ops-mono ops-sub">{issue.action}</div>
                     </td>
-                    <td>
-                      {issue.deal_name || "—"}
-                      <div className="crm-muted">
+                    <td className="ops-col-deal">
+                      <div className="ops-wrap">{issue.deal_name || "—"}</div>
+                      <div className="ops-mono ops-sub ops-wrap">
                         #{issue.submission_id}
                         {issue.external_id ? ` · ${issue.external_id}` : ""}
                       </div>
                     </td>
-                    <td>{shortNote(issue.note, 260)}</td>
+                    <td>
+                      <pre className="ops-msg">{formatMessage(issue.note)}</pre>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -245,33 +257,35 @@ export default function IntegrationStatusPage() {
         {events.length === 0 ? (
           <p className="crm-muted">No events in this window.</p>
         ) : (
-          <div className="crm-table-wrap">
-            <table className="crm-table">
+          <div className="ops-scroll-panel">
+            <table className="crm-table ops-table">
               <thead>
                 <tr>
-                  <th>When</th>
-                  <th>API</th>
-                  <th>Result</th>
+                  <th className="ops-col-when">When</th>
+                  <th className="ops-col-api">API</th>
+                  <th className="ops-col-result">Result</th>
                   <th>Response</th>
                 </tr>
               </thead>
               <tbody>
-                {events.slice(0, 40).map((ev) => (
+                {events.slice(0, 80).map((ev) => (
                   <tr key={ev.id}>
-                    <td>{formatWhen(ev.created_at)}</td>
-                    <td>
+                    <td className="ops-col-when">{formatWhen(ev.created_at)}</td>
+                    <td className="ops-col-api">
                       <strong>{INTEGRATION_LABELS[ev.funder_key] || ev.funder_key}</strong>
-                      <div className="crm-muted">
+                      <div className="ops-mono ops-sub ops-wrap">
                         {ev.action} · {ev.deal_name || "—"}
                       </div>
                     </td>
-                    <td>
+                    <td className="ops-col-result">
                       <span className={`brand-status-pill ${ev.ok ? "ready" : "pending"}`}>
                         {ev.ok ? "OK" : "Issue"}
                       </span>
-                      {ev.http_status != null && <div className="crm-muted">HTTP {ev.http_status}</div>}
+                      {ev.http_status != null && <div className="ops-sub">HTTP {ev.http_status}</div>}
                     </td>
-                    <td>{shortNote(ev.message, 240)}</td>
+                    <td>
+                      <pre className="ops-msg">{formatMessage(ev.message)}</pre>
+                    </td>
                   </tr>
                 ))}
               </tbody>
