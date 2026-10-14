@@ -20,13 +20,19 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const res = await api.getTeams();
-    setTeams(res.data);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const res = await api.getTeams();
+      setTeams(res.data);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to load teams.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((e) => setToast(e.message));
+    void load();
   }, [load]);
 
   const filtered = useMemo(() => {

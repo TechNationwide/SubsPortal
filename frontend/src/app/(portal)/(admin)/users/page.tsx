@@ -27,13 +27,19 @@ export default function UsersPage() {
   const [toast, setToast] = useState("");
 
   const load = useCallback(async () => {
-    const res = await api.getUsers();
-    setUsers(res.data);
-    setLoading(false);
+    setLoading(true);
+    try {
+      const res = await api.getUsers();
+      setUsers(res.data);
+    } catch (e) {
+      setToast(e instanceof Error ? e.message : "Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    load().catch((e) => setToast(e.message));
+    void load();
   }, [load]);
 
   const filtered = useMemo(() => {
