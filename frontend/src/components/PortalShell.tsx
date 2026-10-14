@@ -85,12 +85,10 @@ export function PortalShell({ title, subtitle, children }: Props) {
             </nav>
           </div>
           <div className="user-bar">
-            <div className="user-bar-row">
-              <span className="user-pill">{session?.email || "user"}</span>
-              <button type="button" className="btn btn-ghost" onClick={logout}>
-                Sign Out
-              </button>
-            </div>
+            <span className="user-pill">{session?.email || "user"}</span>
+            <button type="button" className="btn btn-ghost" onClick={logout}>
+              Sign Out
+            </button>
             {session?.role === "admin" && (
               <Link
                 href={SOLUTION_DOC.href}

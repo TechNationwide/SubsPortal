@@ -571,9 +571,11 @@
 
       .user-bar {
         display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 8px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
       }
 
       .user-bar-row {
@@ -6129,7 +6131,30 @@ a, button, input, select, textarea, .site-nav-link {
 .portal-header .solution-doc-link {
   white-space: nowrap;
   flex-shrink: 0;
-  align-self: flex-end;
+}
+
+/* Keep email / Sign Out / Solution Document pinned top-right (do not wrap under nav) */
+.portal-header-inner {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  flex-wrap: nowrap;
+}
+
+.portal-header-text {
+  min-width: 0;
+}
+
+.portal-header .user-bar {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  align-self: start;
+  justify-self: end;
+  gap: 10px;
+  max-width: 420px;
 }
 
 .arch-toolbar-note {
