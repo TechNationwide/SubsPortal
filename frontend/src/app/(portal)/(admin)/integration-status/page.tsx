@@ -50,6 +50,105 @@ function formatMessage(value?: string | null) {
   }
 }
 
+type BlameTone = "funder" | "zoho" | "ops" | "portal";
+
+type BlameInfo = {
+  tone: BlameTone;
+  /** Short chip label Keith can scan in one glance */
+  chip: string;
+  /** One-line explanation under the chip */
+  detail: string;
+};
+
+/**
+ * Tell Keith whose side an issue is on before he has to ask.
+ * Funder HTTP/API replies are labeled as not a portal bug.
+ */
+function explainBlame(
+  funderKey?: string | null,
+  action?: string | null,
+  message?: string | null,
+  ok?: boolean | null,
+): BlameInfo | null {
+  if (ok) return null;
+  const key = String(funderKey || "");
+  const label = INTEGRATION_LABELS[key] || key || "Partner";
+  const msg = String(message || "");
+  const act = String(action || "");
+
+  if (
+    /Lead ID was (likely )?blank/i.test(msg) ||
+    /Skipped — Zoho Lead ID/i.test(msg) ||
+    (/zoho_partner_ids/i.test(act) && /blank/i.test(msg))
+  ) {
+    return {
+      tone: "ops",
+      chip: "Portal process — Lead ID was blank",
+      detail:
+        "Not a funder outage. Add the Zoho Lead ID on Partners and Push (or re-submit) so OnDeck / CAN / iDea / Expansion IDs write to CRM.",
+    };
+  }
+
+  if (/Zoho (CRM )?is not configured/i.test(msg)) {
+    return {
+      tone: "portal",
+      chip: "Portal config",
+      detail: "Zoho credentials are missing on the server — this is our setup, not a funder API failure.",
+    };
+  }
+
+  if (/Zoho API|Zoho Leads|Zoho token|Zoho CRM/i.test(msg)) {
+    return {
+      tone: "zoho",
+      chip: "Not a portal bug — Zoho CRM response",
+      detail: "This text came from Zoho. The portal only forwarded their reply.",
+    };
+  }
+
+  if (
+    /\b(OnDeck|CAN Capital|iDea|Idea|Expansion|Channel|PEAC|Aquamark)\b[\s\S]{0,40}\bAPI\b/i.test(msg) ||
+    /\bAPI\s+\d{3}\b/i.test(msg) ||
+    (/\b(unreachable|timed out|timeout)\b/i.test(msg) && !/Zoho/i.test(msg))
+  ) {
+    return {
+      tone: "funder",
+      chip: `Not a portal bug — ${label} API response`,
+      detail: `This message came from ${label}'s servers (their validation / downtime / data rules). The portal logged their reply as-is.`,
+    };
+  }
+
+  if (key && key !== "zoho" && act && !/^zoho_/i.test(act)) {
+    return {
+      tone: "funder",
+      chip: `Not a portal bug — ${label} side`,
+      detail: `Treat this as a ${label} API / data issue unless the note clearly says otherwise.`,
+    };
+  }
+
+  if (/^zoho_/i.test(act) || key === "zoho") {
+    return {
+      tone: "zoho",
+      chip: "Zoho / write-back",
+      detail: "Related to Zoho write-back — usually Lead ID or Zoho reply, not a funder outage.",
+    };
+  }
+
+  return {
+    tone: "portal",
+    chip: "Needs a quick check",
+    detail: "Highlight this row and we can confirm whose side it is.",
+  };
+}
+
+function BlameCallout({ info }: { info: BlameInfo }) {
+  return (
+    <div className={`ops-blame ops-blame-${info.tone}`} role="note">
+      <strong>{info.chip}</strong>
+      <span>{info.detail}</span>
+    </div>
+  );
+}
+
 function cardState(configured: boolean, last?: IntegrationStatusEvent) {
   if (!configured) return { label: "Not configured", tone: "empty" as const };
   if (!last) return { label: "Configured", tone: "ready" as const };
@@ -156,10 +255,23 @@ export default function IntegrationStatusPage() {
         <div className="ops-banner ops-banner-ok">Integrations look healthy in this window.</div>
       ) : summary ? (
         <div className="ops-banner ops-banner-warn">
-          Review the issues below — blank Zoho Lead IDs on submit are the most common reason OnDeck / CAN / iDea /
-          Expansion IDs stay empty in CRM.
+          Review the issues below. Orange &quot;Not a portal bug&quot; labels mean the funder/Zoho API replied with
+          that error — we only logged it. Blank Zoho Lead IDs on submit are still the most common reason OnDeck /
+          CAN / iDea / Expansion IDs stay empty in CRM.
         </div>
       ) : null}
+
+      <div className="ops-legend" aria-label="How to read issue labels">
+        <span className="ops-legend-item ops-blame-funder">
+          <strong>Funder API</strong> — their servers / rules (not a portal bug)
+        </span>
+        <span className="ops-legend-item ops-blame-zoho">
+          <strong>Zoho</strong> — CRM reply or write-back
+        </span>
+        <span className="ops-legend-item ops-blame-ops">
+          <strong>Process</strong> — usually blank Lead ID on submit
+        </span>
+      </div>
 
       <section className="card panel">
         <div className="panel-header">
@@ -172,6 +284,9 @@ export default function IntegrationStatusPage() {
               const status = (partners[key] || { configured: false }) as PartnerIntegrationStatus;
               const last = lastByFunder[key];
               const state = cardState(Boolean(status.configured), last);
+              const blame = last
+                ? explainBlame(key, last.action, last.message, last.ok)
+                : null;
               const note = formatMessage(
                 last?.message || (status.configured ? "No recent events." : "Credentials not set on server."),
               );
@@ -195,6 +310,7 @@ export default function IntegrationStatusPage() {
                       <dd>{formatWhen(last?.created_at)}</dd>
                     </div>
                   </dl>
+                  {blame && <BlameCallout info={blame} />}
                   <pre className="ops-msg ops-msg-card">{note}</pre>
                 </article>
               );
@@ -224,25 +340,29 @@ export default function IntegrationStatusPage() {
                 </tr>
               </thead>
               <tbody>
-                {issues.map((issue: IntegrationStatusIssue, idx) => (
-                  <tr key={`${issue.submission_id}-${issue.kind}-${idx}`}>
-                    <td className="ops-col-when">{formatWhen(issue.when)}</td>
-                    <td className="ops-col-api">
-                      <strong>{INTEGRATION_LABELS[issue.funder_key] || issue.funder_key || "—"}</strong>
-                      <div className="ops-mono ops-sub">{issue.action}</div>
-                    </td>
-                    <td className="ops-col-deal">
-                      <div className="ops-wrap">{issue.deal_name || "—"}</div>
-                      <div className="ops-mono ops-sub ops-wrap">
-                        #{issue.submission_id}
-                        {issue.external_id ? ` · ${issue.external_id}` : ""}
-                      </div>
-                    </td>
-                    <td>
-                      <pre className="ops-msg">{formatMessage(issue.note)}</pre>
-                    </td>
-                  </tr>
-                ))}
+                {issues.map((issue: IntegrationStatusIssue, idx) => {
+                  const blame = explainBlame(issue.funder_key, issue.action, issue.note, false);
+                  return (
+                    <tr key={`${issue.submission_id}-${issue.kind}-${idx}`}>
+                      <td className="ops-col-when">{formatWhen(issue.when)}</td>
+                      <td className="ops-col-api">
+                        <strong>{INTEGRATION_LABELS[issue.funder_key] || issue.funder_key || "—"}</strong>
+                        <div className="ops-mono ops-sub">{issue.action}</div>
+                      </td>
+                      <td className="ops-col-deal">
+                        <div className="ops-wrap">{issue.deal_name || "—"}</div>
+                        <div className="ops-mono ops-sub ops-wrap">
+                          #{issue.submission_id}
+                          {issue.external_id ? ` · ${issue.external_id}` : ""}
+                        </div>
+                      </td>
+                      <td>
+                        {blame && <BlameCallout info={blame} />}
+                        <pre className="ops-msg">{formatMessage(issue.note)}</pre>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -268,26 +388,30 @@ export default function IntegrationStatusPage() {
                 </tr>
               </thead>
               <tbody>
-                {events.slice(0, 80).map((ev) => (
-                  <tr key={ev.id}>
-                    <td className="ops-col-when">{formatWhen(ev.created_at)}</td>
-                    <td className="ops-col-api">
-                      <strong>{INTEGRATION_LABELS[ev.funder_key] || ev.funder_key}</strong>
-                      <div className="ops-mono ops-sub ops-wrap">
-                        {ev.action} · {ev.deal_name || "—"}
-                      </div>
-                    </td>
-                    <td className="ops-col-result">
-                      <span className={`brand-status-pill ${ev.ok ? "ready" : "pending"}`}>
-                        {ev.ok ? "OK" : "Issue"}
-                      </span>
-                      {ev.http_status != null && <div className="ops-sub">HTTP {ev.http_status}</div>}
-                    </td>
-                    <td>
-                      <pre className="ops-msg">{formatMessage(ev.message)}</pre>
-                    </td>
-                  </tr>
-                ))}
+                {events.slice(0, 80).map((ev) => {
+                  const blame = explainBlame(ev.funder_key, ev.action, ev.message, ev.ok);
+                  return (
+                    <tr key={ev.id}>
+                      <td className="ops-col-when">{formatWhen(ev.created_at)}</td>
+                      <td className="ops-col-api">
+                        <strong>{INTEGRATION_LABELS[ev.funder_key] || ev.funder_key}</strong>
+                        <div className="ops-mono ops-sub ops-wrap">
+                          {ev.action} · {ev.deal_name || "—"}
+                        </div>
+                      </td>
+                      <td className="ops-col-result">
+                        <span className={`brand-status-pill ${ev.ok ? "ready" : "pending"}`}>
+                          {ev.ok ? "OK" : "Issue"}
+                        </span>
+                        {ev.http_status != null && <div className="ops-sub">HTTP {ev.http_status}</div>}
+                      </td>
+                      <td>
+                        {blame && <BlameCallout info={blame} />}
+                        <pre className="ops-msg">{formatMessage(ev.message)}</pre>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
