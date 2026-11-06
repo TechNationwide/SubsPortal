@@ -175,6 +175,13 @@ def submit_application(
     if application_file is None:
         raise ValueError("Channel requires an application document (Category: Application) to submit an application.")
     owner = owners[0] if owners else {}
+    owner_email = str(owner.get("email") or "").strip()
+    if not owner_email:
+        # Channel's addcontact validator requires EmailAddress — fail early
+        # with a clear field message instead of a mid-flow JSON dump.
+        raise ValueError(
+            "Owner email is required for Channel. Add it on the Owners form (or Pull from Zoho), then Submit to Channel again."
+        )
     user_email = os.getenv("CHANNEL_USER_EMAIL") or ""
 
     start_body = {
@@ -232,7 +239,7 @@ def submit_application(
             "FederalTaxId": business.get("tax_id", ""),
             "PhoneNumber": _clean_phone(business.get("phone", "")),
             "AlternatePhone": "",
-            "BusinessEmail": owner.get("email", ""),
+            "BusinessEmail": owner_email,
             "OpportunityComments": "",
             "Website": "",
             "BusinessType": business_type_code,
@@ -249,6 +256,7 @@ def submit_application(
         "Request": {
             "FirstName": owner.get("first_name", ""),
             "LastName": owner.get("last_name", ""),
+            "EmailAddress": owner_email,
             "SocialSecurityNumber": (owner.get("ssn") or "").replace(",", ""),
             "PhoneNumber": _clean_phone(owner.get("phone", "")),
             "PercentageOwned": owner.get("ownership_percentage", 100),
